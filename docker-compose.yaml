@@ -8,54 +8,59 @@ services:
     image: whisper-service:latest
     container_name: whisper-service
     restart: unless-stopped
-
-#    deploy:
- #     resources:
-  #      reservations:
-   #       devices:
-    #        - driver: nvidia
-     #         count: 1
-      #cle        capabilities: [gpu]
-
-    ports:
-      - "8000:8000"
-
+    runtime: runc
     environment:
       WHISPER_MODEL: base
-      WHISPER_DEVICE: cpu          # ← change from cuda to cpu
-      WHISPER_COMPUTE_TYPE: int8   # ← change from float16 (CPU doesn't support float16)
-
-      # ── Option A: pre-populate the volume (recommended for prod) ────────────
-      # Mount a host directory or named volume containing the model weights.
-      # faster-whisper expects the CTranslate2 format. Convert once with:
-      #   ct2-opus-mt-en-de-converter  (or use the HF repo directly)
-      # Leave S3 vars blank when using a volume.
-
-      # ── Option B: pull from S3 on first startup ─────────────────────────────
-      # MODEL_FETCH_BUCKET: my-ml-models
-      # MODEL_FETCH_KEY: whisper/base       # key to a .tar.gz of the model dir
-      # AWS_DEFAULT_REGION: us-east-1
-      # AWS_ACCESS_KEY_ID: ...              # prefer an IAM role / IRSA in k8s
-      # AWS_SECRET_ACCESS_KEY: ...
-
-      # ── Option C: HuggingFace auto-download (dev/staging only) ──────────────
-      # Set neither volume nor S3 vars. App will pull from HF Hub on startup.
-      # Not recommended for production (slow cold start, egress costs).
-
+      WHISPER_DEVICE: cpu
+      WHISPER_COMPUTE_TYPE: int8
+      MAX_FILE_MB: "50"
+      MODEL_DIR: /models
     volumes:
-      # Named volume — pre-populate with: docker run --rm -v whisper-models:/models
-      #   ghcr.io/systran/faster-whisper base  (or any ct2 conversion tool)
       - whisper-models:/models
-
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/ready"]
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 60s   # extra time for HF download path if used
+      start_period: 60s
+    networks:
+      - osf-net
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    volumes:
+      - ollama-models:/root/.ollama
+    ports:
+      - "11434:11434"
+    networks:
+      - osf-net
+    restart: unless-stopped
+
+  insights:
+    build:
+      context: ./insights
+      dockerfile: Dockerfile
+    container_name: insights-service
+    ports:
+      - "8001:8001"
+    environment:
+      WHISPER_URL: http://whisper:8000
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: llama3
+    depends_on:
+      whisper:
+        condition: service_healthy    # waits for /ready to pass
+      ollama:
+        condition: service_started
+    networks:
+      - osf-net
+    restart: unless-stopped
+
+networks:
+  osf-net:
+    driver: bridge
 
 volumes:
   whisper-models:
-    # To pre-seed: docker compose run --rm whisper python3 -c "
-    #   from faster_whisper import WhisperModel
-    #   WhisperModel('base', device='cpu', download_root='/models')"
+  ollama-models:
