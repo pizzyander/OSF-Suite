@@ -1,6 +1,4 @@
-version: "3.9"
-
-services:
+﻿services:
   whisper:
     build:
       context: .
@@ -27,7 +25,7 @@ services:
       - osf-net
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.1.44
     container_name: ollama
     volumes:
       - ollama-models:/root/.ollama
@@ -44,15 +42,56 @@ services:
     container_name: insights-service
     ports:
       - "8001:8001"
+    env_file:
+      - .env
     environment:
       WHISPER_URL: http://whisper:8000
       OLLAMA_URL: http://ollama:11434
-      OLLAMA_MODEL: llama3
+      OLLAMA_MODEL: phi3:mini
+      REDIS_URL: redis://redis:6379
+      AWS_DEFAULT_REGION: us-east-1
+      S3_BUCKET: osf-suite-audio
+      DIARIZATION_URL: http://diarization:8002
     depends_on:
       whisper:
-        condition: service_healthy    # waits for /ready to pass
+        condition: service_healthy
       ollama:
         condition: service_started
+      redis:
+        condition: service_started
+    networks:
+      - osf-net
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./insights
+      dockerfile: Dockerfile
+    container_name: osf-worker
+    command: python -u worker.py
+    env_file:
+      - .env
+    environment:
+      WHISPER_URL: http://whisper:8000
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: phi3:mini
+      REDIS_URL: redis://redis:6379
+      AWS_DEFAULT_REGION: us-east-1
+      S3_BUCKET: osf-suite-audio
+    depends_on:
+      whisper:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+      redis:
+        condition: service_started
+    networks:
+      - osf-net
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: osf-redis
     networks:
       - osf-net
     restart: unless-stopped

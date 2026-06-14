@@ -1,0 +1,62 @@
+﻿{
+    "meeting_id":  "edfbaae0-cdd8-401a-a582-357a71bcf955",
+    "status":  "done",
+    "transcript":  "Okay, so now I\u0027ve integrated Ulamah into the system, at least for cash in. Oh, that\u0027s great, yes, that\u0027s great, thank you very much. So what does Ulamah do? Uh, Ulamah helps summarize the omitting and just, um, it\u0027s just not to judge the picture, but the school source and it\u0027s free. Okay, but wouldn\u0027t that cost much money? Uh, probably it costs money for computation, the cloud, but, um, on the long run, we are safer using Ulamah than using charging technology, so the, um, see the insights, um, part of the Ujo is very necessary, we may need to, um, use Ulamah as our best choice. Okay, um, I think I\u0027ll buy, okay, I\u0027ll buy. Okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay",
+    "insights":  {
+                     "summary":  "The client expressed interest in Ulamah\u0027s service for summarizing omitting and sources without judgment, acknowledging potential long-term cost benefits.",
+                     "action_items":  [
+                                          {
+                                              "owner":  "agent",
+                                              "task":  "Provide more detailed pricing information about Ulamah\u0027s services"
+                                          },
+                                          {
+                                              "owner":  "client",
+                                              "task":  "Consideration for a trial period with Ulamah",
+                                              "deadline":  "2 weeks"
+                                          }
+                                      ],
+                     "client_pain_points":  [
+                                                "Cost of computing and cloud usage"
+                                            ],
+                     "objections_raised":  [
+                                               {
+                                                   "objection":  "Potential high cost for using Ulamah\u0027s services in the long run",
+                                                   "how_handled":  "Discussed potential long-term benefits and safety"
+                                               }
+                                           ],
+                     "buying_signals":  [
+                                            "Client expressed intention to purchase after further discussion"
+                                        ],
+                     "deal_health":  {
+                                         "score":  "warm",
+                                         "reasoning":  "The client showed interest but raised concerns about costs, which were addressed.",
+                                         "next_steps":  [
+                                                            "Provide detailed pricing information",
+                                                            "Consideration for a trial period"
+                                                        ]
+                                     },
+                     "client_personality":  {
+                                                "communication_style":  "Questions hesitantly with uncertainty",
+                                                "decision_making":  "Inquisitive and considers long-term implications",
+                                                "key_motivators":  [
+                                                                       "Long-term benefits",
+                                                                       "Safety"
+                                                                   ]
+                                            },
+                     "calendar_schedule":  [
+                                               {
+                                                   "event":  "Trial period discussion with client",
+                                                   "suggested_date":  "2 weeks from today\u0027s date",
+                                                   "participants":  [
+                                                                        "Agent",
+                                                                        "Client"
+                                                                    ]
+                                               }
+                                           ],
+                     "intelligence_insights":  [
+                                                   "The client is open to innovative solutions but cautious about costs and long-term implications. A trial period could help alleviate their concerns."
+                                               ]
+                 },
+    "created_at":  "2026-06-14T16:32:24.384527",
+    "completed_at":  "2026-06-14T16:36:22.560557"
+}

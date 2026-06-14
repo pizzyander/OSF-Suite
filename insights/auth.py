@@ -1,0 +1,73 @@
+﻿import os, uuid, secrets, string, bcrypt
+from datetime import datetime, timedelta
+from typing import Optional
+
+from fastapi import Header, HTTPException, Depends, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import JWTError, jwt
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from db import get_session, Agent
+
+JWT_SECRET     = os.getenv("JWT_SECRET", "change-this-secret")
+JWT_ALGORITHM  = os.getenv("JWT_ALGORITHM", "HS256")
+ACCESS_EXPIRE  = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+REFRESH_EXPIRE = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+
+bearer_scheme = HTTPBearer()
+
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+
+
+def generate_api_key() -> str:
+    alphabet = string.ascii_letters + string.digits
+    random_part = "".join(secrets.choice(alphabet) for _ in range(40))
+    return f"osf_{random_part}"
+
+
+def create_access_token(agent_id: str) -> str:
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_EXPIRE)
+    payload = {"sub": agent_id, "exp": expire, "type": "access"}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def create_refresh_token(agent_id: str) -> str:
+    expire = datetime.utcnow() + timedelta(days=REFRESH_EXPIRE)
+    payload = {"sub": agent_id, "exp": expire, "type": "refresh"}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def decode_token(token: str, token_type: str = "access") -> str:
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != token_type:
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        agent_id = payload.get("sub")
+        if not agent_id:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return agent_id
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
+async def get_current_agent(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_session)
+) -> Agent:
+    agent_id = decode_token(credentials.credentials)
+    result = await db.execute(
+        select(Agent)
+        .where(Agent.id == agent_id)
+        .where(Agent.is_active == True)
+    )
+    agent = result.scalar_one_or_none()
+    if not agent:
+        raise HTTPException(status_code=401, detail="Agent not found or inactive")
+    return agent
