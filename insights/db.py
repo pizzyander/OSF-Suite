@@ -3,7 +3,6 @@ from datetime import datetime
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, Boolean
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import declarative_base, sessionmaker
-from sqlalchemy.pool import NullPool
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
@@ -13,7 +12,11 @@ DATABASE_URL = os.getenv(
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    poolclass=NullPool
+    pool_size=10,        # keep this many connections warm and reused
+    max_overflow=10,     # allow up to 10 more under bursty load
+    pool_timeout=30,     # seconds to wait for a free connection before raising
+    pool_pre_ping=True,  # check connection liveness before handing it out
+    pool_recycle=1800,   # recycle connections every 30 min to avoid staleness
 )
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()

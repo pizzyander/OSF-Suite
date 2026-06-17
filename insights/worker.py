@@ -90,6 +90,9 @@ TRANSCRIPT:
 
 
 async def analyze(transcript: str) -> dict:
+    if not transcript or not transcript.strip():
+        raise ValueError("Transcript is empty - cannot generate insights")
+
     prompt = USER_PROMPT.replace("{transcript}", transcript)
     async with httpx.AsyncClient(timeout=1500) as client:
         response = await client.post(
@@ -98,19 +101,30 @@ async def analyze(transcript: str) -> dict:
                 "model": OLLAMA_MODEL,
                 "system": SYSTEM_PROMPT,
                 "prompt": prompt,
-                "stream": True,
+                "stream": False,
                 "format": "json"
             }
         )
     response.raise_for_status()
-    raw = response.json()["response"]
+
+    # Ollama 0.1.44 can return multiple newline-delimited JSON objects
+    # even when stream=False (e.g. a trailing empty/heartbeat line).
+    # Take only the first non-empty line as the real response envelope.
+    body_text = response.text.strip()
+    first_line = body_text.splitlines()[0]
+    outer = json.loads(first_line)
+    raw = outer["response"]
 
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         # Strip any accidental markdown fences if model misbehaves
         clean = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        return json.loads(clean)
+        try:
+            return json.loads(clean)
+        except json.JSONDecodeError as e:
+            # Surface the actual bad payload so it's visible in worker logs / DB status
+            raise ValueError(f"Model returned invalid JSON (len={len(raw)}): {raw[:500]!r}") from e
 
 
 async def process_message(meeting_id: str):
@@ -143,7 +157,7 @@ async def process_message(meeting_id: str):
             print(f"Meeting {meeting_id} completed successfully")
 
         except Exception as e:
-            print(f"Failed to process {meeting_id}: {e}")
+            print(f"Failed to process {meeting_id}: {repr(e)}")
             async with AsyncSessionLocal() as db2:
                 db_result2 = await db2.execute(select(Meeting).where(Meeting.id == meeting_id))
                 m = db_result2.scalar_one_or_none()

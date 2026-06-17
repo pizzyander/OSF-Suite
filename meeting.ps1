@@ -142,25 +142,111 @@ while ($attempt -lt $MaxPollAttempts) {
 
     if ($results.status -eq "done") {
         Write-Success "Insights ready!"
+
+        # Insights are nested: results.insights.meeting_intelligence / results.insights.coaching
+        $mi = $results.insights.meeting_intelligence
+        $coaching = $results.insights.coaching
+
+        # ===================== MEETING INTELLIGENCE =====================
         Write-Host "`n========== MEETING INSIGHTS ==========" -ForegroundColor Magenta
         Write-Host "Meeting ID  : $meetingId"
-        Write-Host "Summary     : $($results.insights.summary)"
-        Write-Host "`nDeal Health : $($results.insights.deal_health.score.ToUpper()) - $($results.insights.deal_health.reasoning)"
+        Write-Host "Summary     : $($mi.summary)"
+
+        if ($mi.deal_health) {
+            Write-Host "`nDeal Health : $($mi.deal_health.score.ToUpper()) - $($mi.deal_health.reasoning)"
+        }
+
+        if ($mi.client_personality) {
+            Write-Host "`nClient Personality:"
+            Write-Host "  Communication Style : $($mi.client_personality.communication_style)"
+            Write-Host "  Decision Making     : $($mi.client_personality.decision_making)"
+            Write-Host "  Key Motivators      :"
+            $mi.client_personality.key_motivators | ForEach-Object { Write-Host "    - $_" }
+        }
+
         Write-Host "`nBuying Signals:"
-        $results.insights.buying_signals | ForEach-Object { Write-Host "  - $_" }
+        $mi.buying_signals | ForEach-Object { Write-Host "  - $_" }
+
         Write-Host "`nClient Pain Points:"
-        $results.insights.client_pain_points | ForEach-Object { Write-Host "  - $_" }
+        $mi.client_pain_points | ForEach-Object { Write-Host "  - $_" }
+
         Write-Host "`nObjections Raised:"
-        $results.insights.objections_raised | ForEach-Object { Write-Host "  - $($_.objection)" }
+        $mi.objections_raised | ForEach-Object {
+            Write-Host "  - $($_.objection)"
+            if ($_.how_handled) { Write-Host "      Handled: $($_.how_handled)" }
+        }
+
         Write-Host "`nAction Items:"
-        $results.insights.action_items | ForEach-Object { Write-Host "  - [$($_.owner)] $($_.task)" }
-        Write-Host "`nNext Steps:"
-        $results.insights.deal_health.next_steps | ForEach-Object { Write-Host "  - $_" }
+        $mi.action_items | ForEach-Object {
+            $deadline = if ($_.deadline) { " (due: $($_.deadline))" } else { "" }
+            Write-Host "  - [$($_.owner)] $($_.task)$deadline"
+        }
+
+        if ($mi.deal_health) {
+            Write-Host "`nNext Steps:"
+            $mi.deal_health.next_steps | ForEach-Object { Write-Host "  - $_" }
+        }
+
         Write-Host "`nCalendar Schedule:"
-        $results.insights.calendar_schedule | ForEach-Object { Write-Host "  - $($_.event) ($($_.suggested_date))" }
+        $mi.calendar_schedule | ForEach-Object {
+            $date = if ($_.suggested_date) { $_.suggested_date } else { "TBD" }
+            Write-Host "  - $($_.event) ($date)"
+        }
+
         Write-Host "`nIntelligence Insights:"
-        $results.insights.intelligence_insights | ForEach-Object { Write-Host "  - $_" }
-        Write-Host "======================================" -ForegroundColor Magenta
+        $mi.intelligence_insights | ForEach-Object { Write-Host "  - $_" }
+
+        # ============================ COACHING ============================
+        if ($coaching) {
+            Write-Host "`n========== AGENT COACHING REPORT ==========" -ForegroundColor Magenta
+
+            if ($coaching.overall_grade) {
+                Write-Host "`nOverall Grade : $($coaching.overall_grade.score_out_of_100)/100"
+                Write-Host "Headline      : $($coaching.overall_grade.headline_summary)"
+            }
+
+            if ($coaching.metrics) {
+                Write-Host "`nTalk Ratio:"
+                Write-Host "  Agent  : $($coaching.metrics.agent_talk_ratio_percentage)%"
+                Write-Host "  Client : $($coaching.metrics.client_talk_ratio_percentage)%"
+                Write-Host "Questions:"
+                Write-Host "  Open-ended : $($coaching.metrics.open_ended_questions_count)"
+                Write-Host "  Closed     : $($coaching.metrics.closed_questions_count)"
+            }
+
+            if ($coaching.objections_handled -and $coaching.objections_handled.Count -gt 0) {
+                Write-Host "`n--- Objection-by-Objection Breakdown ---"
+                $i = 1
+                $coaching.objections_handled | ForEach-Object {
+                    Write-Host "`n  [$i] Client objection : $($_.client_objection)"
+                    Write-Host "      Agent response   : $($_.agent_response)"
+                    Write-Host "      Effectiveness    : $($_.effectiveness_score_out_of_10)/10"
+                    Write-Host "      Critique         : $($_.coaching_critique)"
+                    Write-Host "      Better script     -> `"$($_.exact_alternative_script)`""
+                    $i++
+                }
+            }
+
+            if ($coaching.missed_revenue_cues -and $coaching.missed_revenue_cues.Count -gt 0) {
+                Write-Host "`n--- Missed Revenue Cues ---"
+                $coaching.missed_revenue_cues | ForEach-Object {
+                    Write-Host "  - Context  : $($_.timestamp_or_context)"
+                    Write-Host "    Signal   : $($_.client_buying_signal)"
+                    Write-Host "    Missed   : $($_.agent_missed_action)"
+                }
+            }
+
+            if ($coaching.top_three_action_items -and $coaching.top_three_action_items.Count -gt 0) {
+                Write-Host "`n--- Top 3 Action Items for Agent ---"
+                $n = 1
+                $coaching.top_three_action_items | ForEach-Object {
+                    Write-Host "  $n. $_"
+                    $n++
+                }
+            }
+
+            Write-Host "`n=============================================" -ForegroundColor Magenta
+        }
 
         $outputFile = "meeting_$meetingId.json"
         $results | ConvertTo-Json -Depth 10 | Out-File $outputFile -Encoding UTF8
