@@ -12,39 +12,76 @@ SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL", "")
 AWS_REGION    = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
 
 SYSTEM_PROMPT = """
-You are an expert sales intelligence analyst. Given a meeting transcript,
-extract structured insights to help a sales agent understand their client
-and close deals. Respond ONLY with valid JSON, no explanation, no markdown.
+You are an elite private sales performance coach AND a senior sales intelligence analyst.
+Given a sales call transcript, you extract exact behavioral metrics, structured meeting
+intelligence, and hyper-tactical coaching feedback to help a sales agent close more deals.
+You evaluate based on core sales psychology principles: active listening, open-ended
+discovery, objection handling, and clear closing and next steps.
+Respond ONLY with valid JSON. No explanation, no markdown, no text outside the JSON object.
 """
 
 USER_PROMPT = """
-Analyze this sales meeting transcript and return a JSON object with exactly
-these fields:
+Analyze this sales call transcript and return a single JSON object with exactly these fields:
 
 {
-  "summary": "2-3 sentence overview of the meeting",
-  "action_items": [
-    {"owner": "agent|client", "task": "...", "deadline": "...or null"}
-  ],
-  "client_pain_points": ["..."],
-  "objections_raised": [
-    {"objection": "...", "how_handled": "...or null"}
-  ],
-  "buying_signals": ["..."],
-  "deal_health": {
-    "score": "hot|warm|cold",
-    "reasoning": "...",
-    "next_steps": ["..."]
+  "meeting_intelligence": {
+    "summary": "<2-3 sentence overview of the meeting>",
+    "action_items": [
+      {"owner": "agent|client", "task": "<string>", "deadline": "<string or null>"}
+    ],
+    "client_pain_points": ["<string>"],
+    "objections_raised": [
+      {"objection": "<string>", "how_handled": "<string or null>"}
+    ],
+    "buying_signals": ["<string>"],
+    "deal_health": {
+      "score": "hot|warm|cold",
+      "reasoning": "<string>",
+      "next_steps": ["<string>"]
+    },
+    "client_personality": {
+      "communication_style": "<string>",
+      "decision_making": "<string>",
+      "key_motivators": ["<string>"]
+    },
+    "calendar_schedule": [
+      {"event": "<string>", "suggested_date": "<string or null>", "participants": ["<string>"]}
+    ],
+    "intelligence_insights": ["<string>"]
   },
-  "client_personality": {
-    "communication_style": "...",
-    "decision_making": "...",
-    "key_motivators": ["..."]
-  },
-  "calendar_schedule": [
-    {"event": "...", "suggested_date": "...or null", "participants": ["..."]}
-  ],
-  "intelligence_insights": ["..."]
+  "coaching": {
+    "metrics": {
+      "agent_talk_ratio_percentage": <integer 0-100>,
+      "client_talk_ratio_percentage": <integer 0-100>,
+      "open_ended_questions_count": <integer>,
+      "closed_questions_count": <integer>
+    },
+    "overall_grade": {
+      "score_out_of_100": <integer>,
+      "headline_summary": "<punchy 1-sentence summary of agent performance>"
+    },
+    "objections_handled": [
+      {
+        "client_objection": "<string>",
+        "agent_response": "<string>",
+        "effectiveness_score_out_of_10": <integer>,
+        "coaching_critique": "<2 sentences max>",
+        "exact_alternative_script": "<word-for-word what agent should say next time>"
+      }
+    ],
+    "missed_revenue_cues": [
+      {
+        "timestamp_or_context": "<string>",
+        "client_buying_signal": "<string>",
+        "agent_missed_action": "<string>"
+      }
+    ],
+    "top_three_action_items": [
+      "<actionable step 1>",
+      "<actionable step 2>",
+      "<actionable step 3>"
+    ]
+  }
 }
 
 TRANSCRIPT:
@@ -66,7 +103,14 @@ async def analyze(transcript: str) -> dict:
             }
         )
     response.raise_for_status()
-    return json.loads(response.json()["response"])
+    raw = response.json()["response"]
+
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        # Strip any accidental markdown fences if model misbehaves
+        clean = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        return json.loads(clean)
 
 
 async def process_message(meeting_id: str):
@@ -81,19 +125,22 @@ async def process_message(meeting_id: str):
             print(f"Analyzing meeting {meeting_id}...")
             insights = await analyze(meeting.transcript)
 
+            # Save full merged result
             meeting.insights = insights
             meeting.status = "done"
             meeting.completed_at = datetime.utcnow()
             await db.commit()
 
+            # Cache both sections separately in Redis for fast UI access
             r = aioredis.from_url(REDIS_URL)
             await r.hset(f"meeting:{meeting_id}", mapping={
                 "status": "done",
-                "insights": json.dumps(insights)
+                "insights": json.dumps(insights.get("meeting_intelligence", {})),
+                "coaching": json.dumps(insights.get("coaching", {})),
             })
             await r.aclose()
 
-            print(f"Meeting {meeting_id} saved successfully")
+            print(f"Meeting {meeting_id} completed successfully")
 
         except Exception as e:
             print(f"Failed to process {meeting_id}: {e}")
@@ -129,7 +176,6 @@ async def run():
 
                 await process_message(meeting_id)
 
-                # Delete from SQS only after successful processing
                 sqs.delete_message(
                     QueueUrl=SQS_QUEUE_URL,
                     ReceiptHandle=receipt_handle
