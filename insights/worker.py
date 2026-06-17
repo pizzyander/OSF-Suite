@@ -91,14 +91,14 @@ TRANSCRIPT:
 
 async def analyze(transcript: str) -> dict:
     prompt = USER_PROMPT.replace("{transcript}", transcript)
-    async with httpx.AsyncClient(timeout=300) as client:
+    async with httpx.AsyncClient(timeout=1500) as client:
         response = await client.post(
             f"{OLLAMA_URL}/api/generate",
             json={
                 "model": OLLAMA_MODEL,
                 "system": SYSTEM_PROMPT,
                 "prompt": prompt,
-                "stream": False,
+                "stream": True,
                 "format": "json"
             }
         )
