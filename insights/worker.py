@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import select
 
 from db import init_db, AsyncSessionLocal, Meeting
+from db_context import CompanyContext
 
 REDIS_URL     = os.getenv("REDIS_URL", "redis://redis:6379")
 OLLAMA_URL    = os.getenv("OLLAMA_URL", "http://ollama:11434")
@@ -84,16 +85,82 @@ Analyze this sales call transcript and return a single JSON object with exactly 
   }
 }
 
+{company_context_block}
+
 TRANSCRIPT:
 {transcript}
 """
 
+COMPANY_CONTEXT_TEMPLATE = """
+COMPANY CONTEXT (use this to evaluate the agent's knowledge, pricing accuracy, and alignment
+with company policy — flag any deviations in your coaching feedback):
+---------------------------------------------------------------------------
+{company_context}
+---------------------------------------------------------------------------
+"""
 
-async def analyze(transcript: str) -> dict:
+
+async def get_agent_context(agent_id: str) -> str:
+    """
+    Fetch the agent's company context. Tries Redis first (fast path),
+    falls back to Postgres if cache miss (e.g. Redis was restarted).
+    Returns empty string if the agent has no context uploaded.
+    """
+    # 1. Try Redis cache first
+    try:
+        r = aioredis.from_url(REDIS_URL)
+        cached = await r.get(f"agent_context:{agent_id}")
+        await r.aclose()
+        if cached:
+            return cached.decode("utf-8") if isinstance(cached, bytes) else cached
+    except Exception as e:
+        print(f"Redis cache miss for agent {agent_id}: {e}")
+
+    # 2. Fall back to Postgres
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(CompanyContext)
+                .where(CompanyContext.agent_id == agent_id)
+                .where(CompanyContext.is_active == True)
+            )
+            context = result.scalar_one_or_none()
+            if context:
+                # Backfill Redis cache while we're here
+                try:
+                    r = aioredis.from_url(REDIS_URL)
+                    await r.set(
+                        f"agent_context:{agent_id}",
+                        context.extracted_text,
+                        ex=60 * 60 * 24 * 7
+                    )
+                    await r.aclose()
+                except Exception:
+                    pass
+                return context.extracted_text
+    except Exception as e:
+        print(f"Postgres context lookup failed for agent {agent_id}: {e}")
+
+    return ""
+
+
+def build_prompt(transcript: str, company_context: str) -> str:
+    """Inject company context into the prompt only when it exists."""
+    if company_context.strip():
+        context_block = COMPANY_CONTEXT_TEMPLATE.format(company_context=company_context)
+    else:
+        context_block = ""  # no context uploaded — prompt works fine without it
+
+    return USER_PROMPT.replace("{company_context_block}", context_block) \
+                      .replace("{transcript}", transcript)
+
+
+async def analyze(transcript: str, company_context: str) -> dict:
     if not transcript or not transcript.strip():
         raise ValueError("Transcript is empty - cannot generate insights")
 
-    prompt = USER_PROMPT.replace("{transcript}", transcript)
+    prompt = build_prompt(transcript, company_context)
+
     async with httpx.AsyncClient(timeout=1500) as client:
         response = await client.post(
             f"{OLLAMA_URL}/api/generate",
@@ -108,8 +175,7 @@ async def analyze(transcript: str) -> dict:
     response.raise_for_status()
 
     # Ollama 0.1.44 can return multiple newline-delimited JSON objects
-    # even when stream=False (e.g. a trailing empty/heartbeat line).
-    # Take only the first non-empty line as the real response envelope.
+    # even when stream=False. Take only the first non-empty line.
     body_text = response.text.strip()
     first_line = body_text.splitlines()[0]
     outer = json.loads(first_line)
@@ -118,12 +184,10 @@ async def analyze(transcript: str) -> dict:
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        # Strip any accidental markdown fences if model misbehaves
         clean = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
         try:
             return json.loads(clean)
         except json.JSONDecodeError as e:
-            # Surface the actual bad payload so it's visible in worker logs / DB status
             raise ValueError(f"Model returned invalid JSON (len={len(raw)}): {raw[:500]!r}") from e
 
 
@@ -136,16 +200,21 @@ async def process_message(meeting_id: str):
                 print(f"Meeting {meeting_id} not found in DB")
                 return
 
-            print(f"Analyzing meeting {meeting_id}...")
-            insights = await analyze(meeting.transcript)
+            # Fetch company context for this agent (empty string if none uploaded)
+            company_context = await get_agent_context(meeting.user_id)
+            if company_context:
+                print(f"Using company context for agent {meeting.user_id} ({len(company_context)} chars)")
+            else:
+                print(f"No company context for agent {meeting.user_id} — proceeding without it")
 
-            # Save full merged result
+            print(f"Analyzing meeting {meeting_id}...")
+            insights = await analyze(meeting.transcript, company_context)
+
             meeting.insights = insights
             meeting.status = "done"
             meeting.completed_at = datetime.utcnow()
             await db.commit()
 
-            # Cache both sections separately in Redis for fast UI access
             r = aioredis.from_url(REDIS_URL)
             await r.hset(f"meeting:{meeting_id}", mapping={
                 "status": "done",

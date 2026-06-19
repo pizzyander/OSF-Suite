@@ -61,7 +61,8 @@ app = FastAPI(title="OSF Insights Service", version="5.0.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-
+from context_routes import router as context_router
+app.include_router(context_router)
 @app.on_event("startup")
 async def startup():
     await init_db()

@@ -1,0 +1,71 @@
+﻿{
+    "meeting_id":  "d4af90b6-b8b8-4254-b8b5-cd9ddba981c7",
+    "status":  "done",
+    "transcript":  "Testin, testin, testin, one, two, three.",
+    "insights":  {
+                     "meeting_intelligence":  {
+                                                  "summary":  "Unable to extract a meaningful summary from the given transcript",
+                                                  "action_items":  [
+
+                                                                   ],
+                                                  "client_pain_points":  [
+
+                                                                         ],
+                                                  "objections_raised":  [
+
+                                                                        ],
+                                                  "buying_signals":  [
+
+                                                                     ],
+                                                  "deal_health":  {
+                                                                      "score":  "cold",
+                                                                      "reasoning":  "Agent failed to engage effectively with client",
+                                                                      "next_steps":  [
+
+                                                                                     ]
+                                                                  },
+                                                  "client_personality":  {
+                                                                             "communication_style":  "ambiguous",
+                                                                             "decision_making":  "ambiguous",
+                                                                             "key_motivators":  [
+
+                                                                                                ]
+                                                                         },
+                                                  "calendar_schedule":  [
+
+                                                                        ],
+                                                  "intelligence_insights":  [
+
+                                                                            ]
+                                              },
+                     "coaching":  {
+                                      "metrics":  {
+                                                      "agent_talk_ratio_percentage":  100,
+                                                      "client_talk_ratio_percentage":  0,
+                                                      "open_ended_questions_count":  0,
+                                                      "closed_questions_count":  3
+                                                  },
+                                      "overall_grade":  {
+                                                            "score_out_of_100":  0,
+                                                            "headline_summary":  "Agent failed to initiate or sustain conversation with client."
+                                                        },
+                                      "objections_handled":  [
+
+                                                             ],
+                                      "missed_revenue_cues":  [
+                                                                  {
+                                                                      "timestamp_or_context":  "Initial greeting",
+                                                                      "client_buying_signal":  "Interest in property discussion",
+                                                                      "agent_missed_action":  "Did not initiate conversation or engage client\u0027s interest"
+                                                                  }
+                                                              ],
+                                      "top_three_action_items":  [
+                                                                     "Initiate and maintain a meaningful conversation with the client.",
+                                                                     "Ask open-ended questions to gather information about the client\u0027s needs and preferences.",
+                                                                     "Offer personalized property recommendations based on client\u0027s requirements."
+                                                                 ]
+                                  }
+                 },
+    "created_at":  "2026-06-19T23:24:10.368008",
+    "completed_at":  "2026-06-19T23:29:13.889289"
+}

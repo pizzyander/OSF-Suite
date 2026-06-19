@@ -21,7 +21,7 @@ engine = create_async_engine(
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
 
-
+from db_context import CompanyContext  # noqa: F401  — registers table with metadata
 class Agent(Base):
     __tablename__ = "agents"
 
