@@ -3,19 +3,20 @@ from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer
-from sqlalchemy import select, desc, text
+from sqlalchemy import select, update, desc, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import redis.asyncio as aioredis
 
-from db import init_db, get_session, Agent, Meeting
+from db import init_db, get_session, Agent, Meeting, AgentProfile, get_latest_profile
 from auth import (
     get_current_agent, generate_api_key,
     hash_password, verify_password,
     create_access_token, create_refresh_token, decode_token
 )
+from profile_extractor import extract_text, build_prompt_context
 
 REDIS_URL       = os.getenv("REDIS_URL", "redis://redis:6379")
 WHISPER_URL     = os.getenv("WHISPER_URL", "http://whisper:8000")
@@ -57,12 +58,11 @@ def merge_transcript_diarization(transcript_segments, diarization_segments):
 
 
 limiter = Limiter(key_func=get_agent_id)
-app = FastAPI(title="OSF Insights Service", version="5.0.0")
+app = FastAPI(title="OSF Insights Service", version="5.1.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-from context_routes import router as context_router
-app.include_router(context_router)
+
 @app.on_event("startup")
 async def startup():
     await init_db()
@@ -190,6 +190,147 @@ async def change_password(
     return {"message": "Password updated successfully"}
 
 
+# -- Company profile (protected) ----------------------------------------------
+
+@app.post("/agents/profile")
+@limiter.limit("10/minute")
+async def upload_profile(
+    request: Request,
+    file:    UploadFile = File(...),
+    agent:   Agent = Depends(get_current_agent),
+    db:      AsyncSession = Depends(get_session),
+):
+    """
+    Upload or replace a company profile document (PDF / DOCX / TXT).
+    Called at signup and any time the agent wants to update their context.
+
+    Flow:
+      1. Extract raw text from the document.
+      2. Mark all previous profiles for this agent as is_latest=False.
+      3. Persist a new AgentProfile row (is_latest=True, version incremented).
+      4. Write prompt_context to Redis for fast worker lookup (24h TTL).
+    """
+    MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 10 MB.")
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    try:
+        raw_text = extract_text(
+            file_bytes,
+            content_type=file.content_type or "",
+            filename=file.filename or "",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    prompt_context = build_prompt_context(raw_text)
+
+    # Determine next version number
+    existing = await db.execute(
+        select(AgentProfile)
+        .where(AgentProfile.agent_id == agent.id)
+        .where(AgentProfile.is_latest == True)
+    )
+    current = existing.scalar_one_or_none()
+    next_version = (current.version + 1) if current else 1
+
+    # Retire all existing versions for this agent
+    await db.execute(
+        update(AgentProfile)
+        .where(AgentProfile.agent_id == agent.id)
+        .values(is_latest=False)
+    )
+
+    # Persist new version
+    profile = AgentProfile(
+        id             = str(uuid.uuid4()),
+        agent_id       = agent.id,
+        filename       = file.filename,
+        content_type   = file.content_type,
+        raw_text       = raw_text,
+        prompt_context = prompt_context,
+        version        = next_version,
+        is_latest      = True,
+    )
+    db.add(profile)
+    await db.commit()
+
+    # Cache in Redis with 24h TTL
+    r = aioredis.from_url(REDIS_URL)
+    try:
+        await r.set(f"agent_profile:{agent.id}", prompt_context, ex=86400)
+    finally:
+        await r.aclose()
+
+    return {
+        "message":         "Profile uploaded successfully.",
+        "version":         profile.version,
+        "filename":        profile.filename,
+        "chars_extracted": len(raw_text),
+        "created_at":      profile.created_at,
+    }
+
+
+@app.get("/agents/profile")
+async def get_profile(
+    agent: Agent = Depends(get_current_agent),
+    db:   AsyncSession = Depends(get_session),
+):
+    """
+    Returns the agent's current profile metadata and full version history.
+    Raw text is omitted from the history list to keep the payload small.
+    """
+    latest_result = await db.execute(
+        select(AgentProfile)
+        .where(AgentProfile.agent_id == agent.id)
+        .where(AgentProfile.is_latest == True)
+    )
+    latest = latest_result.scalar_one_or_none()
+
+    if not latest:
+        return {"profile": None, "history": []}
+
+    history_result = await db.execute(
+        select(
+            AgentProfile.id,
+            AgentProfile.version,
+            AgentProfile.filename,
+            AgentProfile.content_type,
+            AgentProfile.is_latest,
+            AgentProfile.created_at,
+        )
+        .where(AgentProfile.agent_id == agent.id)
+        .order_by(AgentProfile.version.desc())
+    )
+    history = [
+        {
+            "id":           row.id,
+            "version":      row.version,
+            "filename":     row.filename,
+            "content_type": row.content_type,
+            "is_latest":    row.is_latest,
+            "created_at":   row.created_at,
+        }
+        for row in history_result.all()
+    ]
+
+    return {
+        "profile": {
+            "id":              latest.id,
+            "version":         latest.version,
+            "filename":        latest.filename,
+            "content_type":    latest.content_type,
+            "chars_extracted": len(latest.raw_text),
+            "created_at":      latest.created_at,
+        },
+        "history": history,
+    }
+
+
 # -- Meeting lifecycle (protected) --------------------------------------------
 
 @app.post("/meetings/start")
@@ -241,6 +382,120 @@ async def get_upload_url(
     return {"upload_url": presigned_url, "s3_key": s3_key}
 
 
+@app.post("/meetings/{meeting_id}/upload-complete")
+@limiter.limit("20/minute")
+async def upload_complete(
+    request: Request,
+    meeting_id: str,
+    s3_key: str = Form(...),
+    chunk_seconds: int = Form(30),
+    agent: Agent = Depends(get_current_agent),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Manual upload path (full recording, not the live streaming flow).
+
+    Flow:
+      1. Agent already PUT the full file to S3 via /meetings/{id}/upload-url.
+      2. Agent calls this route with the resulting s3_key.
+      3. We pull the file from S3 here, forward it to the Whisper service's
+         /transcribe-chunked endpoint, which force-splits it into
+         chunk_seconds (default 30s) segments and transcribes each one.
+      4. Chunk texts are concatenated in order into meeting.transcript —
+         no diarization, no per-chunk LLM calls. The full transcript is
+         saved exactly like the live flow's accumulated transcript.
+      5. status flips to "processing" and the meeting_id is pushed to SQS,
+         so the existing worker picks it up and runs the usual single
+         analyze() pass — identical downstream pipeline to live recordings.
+    """
+    result = await db.execute(
+        select(Meeting)
+        .where(Meeting.id == meeting_id)
+        .where(Meeting.user_id == agent.id)
+    )
+    meeting = result.scalar_one_or_none()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    if chunk_seconds <= 0:
+        raise HTTPException(status_code=400, detail="chunk_seconds must be positive")
+
+    # --- Pull the uploaded file from S3 ---------------------------------------
+    s3 = boto3.client("s3", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+    try:
+        s3_obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+        audio_bytes = s3_obj["Body"].read()
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Could not fetch uploaded file from S3: {exc}")
+
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    filename = s3_key.split("/")[-1]
+
+    # --- Forward to Whisper's chunked endpoint --------------------------------
+    # Whisper does all the splitting (ffmpeg) and transcription. We never see
+    # raw audio chunks here — only the resulting text + timestamps come back.
+    try:
+        async with httpx.AsyncClient(timeout=1800) as client:
+            whisper_resp = await client.post(
+                f"{WHISPER_URL}/transcribe-chunked",
+                files={"file": (filename, audio_bytes, "audio/mpeg")},
+                data={
+                    "language": "en",
+                    "word_timestamps": "false",
+                    "chunk_seconds": str(chunk_seconds),
+                },
+            )
+        whisper_resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Whisper chunked transcription failed: {exc.response.text}",
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Whisper service unreachable: {exc}")
+
+    whisper_data = whisper_resp.json()
+    chunks = whisper_data.get("chunks", [])
+    if not chunks:
+        raise HTTPException(status_code=422, detail="Transcription produced no chunks")
+
+    # Concatenate chunk texts in order — same shape as the live flow's
+    # accumulated `meeting.transcript`, just built in one pass instead of
+    # many small POST /chunk calls.
+    transcript_parts = [c["text"] for c in chunks if c.get("text")]
+    full_transcript = "\n".join(transcript_parts).strip()
+
+    if not full_transcript:
+        raise HTTPException(status_code=422, detail="Transcription returned no usable text")
+
+    # --- Save transcript and hand off to the usual worker pipeline -----------
+    meeting.transcript = full_transcript
+    meeting.chunks = len(chunks)
+    meeting.status = "processing"
+    await db.commit()
+
+    r = aioredis.from_url(REDIS_URL)
+    await r.hset(f"meeting:{meeting_id}", mapping={
+        "status": "processing",
+        "transcript": full_transcript,
+        "chunks": len(chunks),
+    })
+    await r.aclose()
+
+    sqs = boto3.client("sqs", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+    sqs.send_message(QueueUrl=SQS_QUEUE_URL, MessageBody=meeting_id)
+
+    return {
+        "meeting_id": meeting_id,
+        "status": "processing",
+        "chunk_count": len(chunks),
+        "audio_duration": whisper_data.get("audio_duration"),
+        "chars_transcribed": len(full_transcript),
+    }
+
+
 @app.post("/meetings/{meeting_id}/chunk")
 @limiter.limit("100/minute")
 async def upload_chunk(
@@ -259,59 +514,32 @@ async def upload_chunk(
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
 
-    s3 = boto3.client("s3", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
-    s3_obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
-    audio_bytes = s3_obj["Body"].read()
-    filename = s3_key.split("/")[-1]
-
-    # Run transcription and diarization in parallel
-    async with httpx.AsyncClient(timeout=120) as client:
-        transcribe_task = client.post(
-            f"{WHISPER_URL}/transcribe",
-            files={"file": (filename, audio_bytes, "audio/ogg")},
-            data={"language": "en", "word_timestamps": "true"}
-        )
-        diarize_task = client.post(
-            f"{DIARIZATION_URL}/diarize",
-            files={"file": (filename, audio_bytes, "audio/ogg")}
-        )
-        transcribe_resp, diarize_resp = await asyncio.gather(
-            transcribe_task, diarize_task, return_exceptions=True
-        )
-
-    if isinstance(transcribe_resp, Exception):
-        raise HTTPException(status_code=502, detail=f"Transcription failed: {transcribe_resp}")
-
-    transcribe_resp.raise_for_status()
-    transcript_data = transcribe_resp.json()
-
-    diarization_segments = []
-    if not isinstance(diarize_resp, Exception):
-        try:
-            diarize_resp.raise_for_status()
-            diarization_segments = diarize_resp.json().get("segments", [])
-        except:
-            pass
-
-    diarized_text = merge_transcript_diarization(
-        transcript_data.get("segments", []),
-        diarization_segments
-    )
-
-    updated_transcript = f"{meeting.transcript}\n{diarized_text}".strip()
-    meeting.transcript = updated_transcript
-    meeting.chunks += 1
-    await db.commit()
-
+    # Increment chunk counter and get this chunk's index atomically in Redis
     r = aioredis.from_url(REDIS_URL)
-    await r.hset(f"meeting:{meeting_id}", mapping={
-        "transcript": updated_transcript,
-        "chunks": meeting.chunks
-    })
+    chunk_index = await r.hincrby(f"meeting:{meeting_id}", "chunks", 1)
     await r.aclose()
 
-    return {"chunk": meeting.chunks, "chunk_text": diarized_text}
+    # Persist the counter to Postgres too
+    meeting.chunks = chunk_index
+    await db.commit()
 
+    # Enqueue: worker will pull this, transcribe, diarize, append in order
+    sqs = boto3.client("sqs", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+    sqs.send_message(
+        QueueUrl=SQS_QUEUE_URL,
+        MessageBody=json.dumps({
+            "type": "chunk",
+            "meeting_id": meeting_id,
+            "s3_key": s3_key,
+            "chunk_index": chunk_index,
+        })
+    )
+
+    return JSONResponse(status_code=202, content={
+        "meeting_id": meeting_id,
+        "chunk_index": chunk_index,
+        "status": "queued"
+    })
 
 @app.post("/meetings/{meeting_id}/end")
 @limiter.limit("100/minute")
@@ -356,11 +584,11 @@ async def get_results(
         raise HTTPException(status_code=404, detail="Meeting not found")
 
     return {
-        "meeting_id": meeting.id,
-        "status": meeting.status,
-        "transcript": meeting.transcript,
-        "insights": meeting.insights,
-        "created_at": meeting.created_at,
+        "meeting_id":   meeting.id,
+        "status":       meeting.status,
+        "transcript":   meeting.transcript,
+        "insights":     meeting.insights,
+        "created_at":   meeting.created_at,
         "completed_at": meeting.completed_at
     }
 
@@ -389,11 +617,11 @@ async def get_my_meetings(
         "total": len(meetings),
         "meetings": [
             {
-                "meeting_id": m.id,
-                "created_at": m.created_at,
+                "meeting_id":   m.id,
+                "created_at":   m.created_at,
                 "completed_at": m.completed_at,
-                "summary": m.insights.get("summary") if m.insights else None,
-                "deal_health": m.insights.get("deal_health") if m.insights else None,
+                "summary":      m.insights.get("summary") if m.insights else None,
+                "deal_health":  m.insights.get("deal_health") if m.insights else None,
             }
             for m in meetings
         ]
@@ -416,12 +644,12 @@ async def get_single_meeting(
         raise HTTPException(status_code=404, detail="Meeting not found")
 
     return {
-        "meeting_id": meeting.id,
-        "status": meeting.status,
-        "transcript": meeting.transcript,
-        "insights": meeting.insights,
-        "chunks": meeting.chunks,
-        "created_at": meeting.created_at,
+        "meeting_id":   meeting.id,
+        "status":       meeting.status,
+        "transcript":   meeting.transcript,
+        "insights":     meeting.insights,
+        "chunks":       meeting.chunks,
+        "created_at":   meeting.created_at,
         "completed_at": meeting.completed_at
     }
 
@@ -449,17 +677,19 @@ async def get_growth(
         if not m.insights:
             continue
         growth.append({
-            "meeting_id": m.id,
-            "date": m.created_at,
-            "deal_health_score": m.insights.get("deal_health", {}).get("score"),
-            "buying_signals_count": len(m.insights.get("buying_signals", [])),
-            "objections_count": len(m.insights.get("objections_raised", [])),
-            "action_items_count": len(m.insights.get("action_items", [])),
-            "pain_points_count": len(m.insights.get("client_pain_points", [])),
+            "meeting_id":            m.id,
+            "date":                  m.created_at,
+            "deal_health_score":     m.insights.get("deal_health", {}).get("score"),
+            "buying_signals_count":  len(m.insights.get("buying_signals", [])),
+            "objections_count":      len(m.insights.get("objections_raised", [])),
+            "action_items_count":    len(m.insights.get("action_items", [])),
+            "pain_points_count":     len(m.insights.get("client_pain_points", [])),
         })
 
     return {"meetings_analyzed": len(growth), "growth": growth}
 
+
+# -- Health & metrics ---------------------------------------------------------
 
 @app.get("/health")
 def health():
@@ -477,7 +707,7 @@ async def get_metrics(db: AsyncSession = Depends(get_session)):
             AttributeNames=["ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible"]
         )
         metrics["sqs"] = {
-            "messages_waiting": int(attrs["Attributes"]["ApproximateNumberOfMessages"]),
+            "messages_waiting":    int(attrs["Attributes"]["ApproximateNumberOfMessages"]),
             "messages_processing": int(attrs["Attributes"]["ApproximateNumberOfMessagesNotVisible"])
         }
     except Exception as e:
@@ -489,13 +719,15 @@ async def get_metrics(db: AsyncSession = Depends(get_session)):
         failed     = await db.execute(text("SELECT COUNT(*) FROM meetings WHERE status = 'failed'"))
         processing = await db.execute(text("SELECT COUNT(*) FROM meetings WHERE status = 'processing'"))
         agents     = await db.execute(text("SELECT COUNT(*) FROM agents WHERE is_active = true"))
+        profiles   = await db.execute(text("SELECT COUNT(*) FROM agent_profiles WHERE is_latest = true"))
 
         metrics["database"] = {
-            "total_meetings": total.scalar(),
-            "completed_meetings": done.scalar(),
-            "failed_meetings": failed.scalar(),
-            "processing_meetings": processing.scalar(),
-            "active_agents": agents.scalar()
+            "total_meetings":       total.scalar(),
+            "completed_meetings":   done.scalar(),
+            "failed_meetings":      failed.scalar(),
+            "processing_meetings":  processing.scalar(),
+            "active_agents":        agents.scalar(),
+            "agents_with_profiles": profiles.scalar(),
         }
     except Exception as e:
         metrics["database"] = {"error": str(e)}
@@ -508,7 +740,7 @@ async def get_metrics(db: AsyncSession = Depends(get_session)):
         metrics["s3"] = {"error": str(e)}
 
     metrics["services"] = {
-        "api": "ok",
+        "api":       "ok",
         "timestamp": datetime.utcnow().isoformat()
     }
 

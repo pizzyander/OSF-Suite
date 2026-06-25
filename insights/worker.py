@@ -190,55 +190,142 @@ async def analyze(transcript: str, company_context: str) -> dict:
         except json.JSONDecodeError as e:
             raise ValueError(f"Model returned invalid JSON (len={len(raw)}): {raw[:500]!r}") from e
 
-
 async def process_message(meeting_id: str):
+    # Session 1: read only — get transcript and agent_id, then close
     async with AsyncSessionLocal() as db:
+        db_result = await db.execute(select(Meeting).where(Meeting.id == meeting_id))
+        meeting = db_result.scalar_one_or_none()
+        if not meeting:
+            print(f"Meeting {meeting_id} not found in DB")
+            return
+        transcript = meeting.transcript
+        agent_id   = meeting.user_id
+
+    if not transcript or not transcript.strip():
+        raise ValueError("Transcript is empty - cannot generate insights")
+
+    # Fetch context (its own sessions internally)
+    company_context = await get_agent_context(agent_id)
+    if company_context:
+        print(f"Using company context for agent {agent_id} ({len(company_context)} chars)")
+    else:
+        print(f"No company context for agent {agent_id} — proceeding without it")
+
+    # Ollama call — can take minutes, no DB session held open
+    print(f"Analyzing meeting {meeting_id}...")
+    insights = await analyze(transcript, company_context)
+
+    # Session 2: write results
+    async with AsyncSessionLocal() as db:
+        db_result = await db.execute(select(Meeting).where(Meeting.id == meeting_id))
+        meeting = db_result.scalar_one_or_none()
+        if not meeting:
+            return
+        meeting.insights     = insights
+        meeting.status       = "done"
+        meeting.completed_at = datetime.utcnow()
+        await db.commit()
+
+    r = aioredis.from_url(REDIS_URL)
+    await r.hset(f"meeting:{meeting_id}", mapping={
+        "status":   "done",
+        "insights": json.dumps(insights.get("meeting_intelligence", {})),
+        "coaching": json.dumps(insights.get("coaching", {})),
+    })
+    await r.aclose()
+
+    print(f"Meeting {meeting_id} completed successfully")
+
+async def process_chunk(message: dict):
+    meeting_id  = message["meeting_id"]
+    s3_key      = message["s3_key"]
+    chunk_index = message["chunk_index"]
+
+    # Pull audio from S3
+    s3 = boto3.client("sqs", region_name=AWS_REGION)  
+    s3 = boto3.client("s3", region_name=AWS_REGION)
+    s3_obj = s3.get_object(Bucket=os.getenv("S3_BUCKET", ""), Key=s3_key)
+    audio_bytes = s3_obj["Body"].read()
+    filename = s3_key.split("/")[-1]
+
+    # Transcribe
+    async with httpx.AsyncClient(timeout=300) as client:
+        transcribe_task = client.post(
+            f"{WHISPER_URL}/transcribe",
+            files={"file": (filename, audio_bytes, "audio/ogg")},
+            data={"language": "en", "word_timestamps": "true"}
+        )
+        diarize_task = client.post(
+            f"{DIARIZATION_URL}/diarize",
+            files={"file": (filename, audio_bytes, "audio/ogg")}
+        )
+        transcribe_resp, diarize_resp = await asyncio.gather(
+            transcribe_task, diarize_task, return_exceptions=True
+        )
+
+    if isinstance(transcribe_resp, Exception):
+        raise RuntimeError(f"Transcription failed: {transcribe_resp}")
+
+    transcribe_resp.raise_for_status()
+    transcript_data = transcribe_resp.json()
+
+    diarization_segments = []
+    if not isinstance(diarize_resp, Exception):
         try:
+            diarize_resp.raise_for_status()
+            diarization_segments = diarize_resp.json().get("segments", [])
+        except Exception:
+            pass
+
+    from main import merge_transcript_diarization  # or inline the function
+    diarized_text = merge_transcript_diarization(
+        transcript_data.get("segments", []),
+        diarization_segments
+    )
+
+    # Store this chunk's text keyed by index — preserves order regardless of
+    # which chunk the worker picks up first
+    r = aioredis.from_url(REDIS_URL)
+    await r.hset(f"meeting:{meeting_id}:chunks", str(chunk_index), diarized_text)
+
+    # Check if meeting has ended AND all expected chunks are now transcribed
+    meeting_meta  = await r.hgetall(f"meeting:{meeting_id}")
+    ended         = meeting_meta.get(b"ended", b"0") == b"1"
+    total_chunks  = int(meeting_meta.get(b"chunks", b"0"))
+    done_count    = await r.hlen(f"meeting:{meeting_id}:chunks")
+    await r.aclose()
+
+    if ended and done_count >= total_chunks:
+        # All chunks transcribed — assemble in order and push to LLM analysis
+        r = aioredis.from_url(REDIS_URL)
+        chunk_map = await r.hgetall(f"meeting:{meeting_id}:chunks")
+        await r.aclose()
+
+        ordered_texts = [
+            chunk_map[k].decode()
+            for k in sorted(chunk_map.keys(), key=lambda x: int(x))
+        ]
+        full_transcript = "\n".join(ordered_texts).strip()
+
+        async with AsyncSessionLocal() as db:
             db_result = await db.execute(select(Meeting).where(Meeting.id == meeting_id))
             meeting = db_result.scalar_one_or_none()
-            if not meeting:
-                print(f"Meeting {meeting_id} not found in DB")
-                return
+            if meeting:
+                meeting.transcript = full_transcript
+                await db.commit()
 
-            # Fetch company context for this agent (empty string if none uploaded)
-            company_context = await get_agent_context(meeting.user_id)
-            if company_context:
-                print(f"Using company context for agent {meeting.user_id} ({len(company_context)} chars)")
-            else:
-                print(f"No company context for agent {meeting.user_id} — proceeding without it")
-
-            print(f"Analyzing meeting {meeting_id}...")
-            insights = await analyze(meeting.transcript, company_context)
-
-            meeting.insights = insights
-            meeting.status = "done"
-            meeting.completed_at = datetime.utcnow()
-            await db.commit()
-
-            r = aioredis.from_url(REDIS_URL)
-            await r.hset(f"meeting:{meeting_id}", mapping={
-                "status": "done",
-                "insights": json.dumps(insights.get("meeting_intelligence", {})),
-                "coaching": json.dumps(insights.get("coaching", {})),
-            })
-            await r.aclose()
-
-            print(f"Meeting {meeting_id} completed successfully")
-
-        except Exception as e:
-            print(f"Failed to process {meeting_id}: {repr(e)}")
-            async with AsyncSessionLocal() as db2:
-                db_result2 = await db2.execute(select(Meeting).where(Meeting.id == meeting_id))
-                m = db_result2.scalar_one_or_none()
-                if m:
-                    m.status = "failed"
-                    await db2.commit()
+        sqs = boto3.client("sqs", region_name=AWS_REGION)
+        sqs.send_message(
+            QueueUrl=SQS_QUEUE_URL,
+            MessageBody=json.dumps({"type": "analyze", "meeting_id": meeting_id})
+        )
+        print(f"All {total_chunks} chunks done for {meeting_id} — queued for analysis")
 
 
 async def run():
     await init_db()
     sqs = boto3.client("sqs", region_name=AWS_REGION)
-    print("Worker started - polling SQS for jobs...")
+    print("Worker started - polling SQS...")
 
     while True:
         try:
@@ -247,28 +334,35 @@ async def run():
                 MaxNumberOfMessages=1,
                 WaitTimeSeconds=20
             )
-
             messages = response.get("Messages", [])
             if not messages:
                 continue
 
             for message in messages:
-                meeting_id = message["Body"]
-                receipt_handle = message["ReceiptHandle"]
-                print(f"Received job: {meeting_id}")
+                body = message["Body"]
+                receipt = message["ReceiptHandle"]
 
-                await process_message(meeting_id)
+                # Route by message type
+                try:
+                    payload = json.loads(body)
+                    msg_type = payload.get("type", "analyze")
+                except (json.JSONDecodeError, AttributeError):
+                    # Legacy plain string = meeting_id for analyze
+                    payload = {"type": "analyze", "meeting_id": body}
+                    msg_type = "analyze"
 
-                sqs.delete_message(
-                    QueueUrl=SQS_QUEUE_URL,
-                    ReceiptHandle=receipt_handle
-                )
-                print(f"Job {meeting_id} deleted from queue")
+                print(f"Received {msg_type} job: {payload.get('meeting_id')}")
+
+                if msg_type == "chunk":
+                    await process_chunk(payload)
+                else:
+                    await process_message(payload["meeting_id"])
+
+                sqs.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=receipt)
 
         except Exception as e:
             print(f"Worker error: {e}, retrying in 5s...")
             await asyncio.sleep(5)
-
 
 if __name__ == "__main__":
     asyncio.run(run())

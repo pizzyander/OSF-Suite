@@ -1,1 +1,9 @@
 .env
+
+.env
+
+*.ogg
+
+__pycache__/
+
+*.pyc

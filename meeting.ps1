@@ -65,7 +65,6 @@ Write-Success "Meeting started: $meetingId"
 # -- Step 3: Get presigned S3 URL ---------------------------------------------
 Write-Step "Getting S3 upload URL..."
 
-# Refresh token if needed
 if ((Get-Date) -gt $tokenExpiry) {
     Write-Host "  Refreshing token..." -ForegroundColor Yellow
     $token = Get-FreshToken $Email $Password $BaseUrl
@@ -73,16 +72,20 @@ if ((Get-Date) -gt $tokenExpiry) {
 }
 
 $filename = Split-Path $AudioFile -Leaf
-$uploadResponse = curl.exe -s "$BaseUrl/meetings/$meetingId/upload-url?filename=$filename" -H "Authorization: Bearer $token" | ConvertFrom-Json
+$encodedFilename = [System.Uri]::EscapeDataString($filename)
+$uploadResponse = curl.exe -s "$BaseUrl/meetings/$meetingId/upload-url?filename=$encodedFilename" `
+    -H "Authorization: Bearer $token" | ConvertFrom-Json
 
 if (-not $uploadResponse.upload_url) {
+    Write-Host "  Debug response: $($uploadResponse | ConvertTo-Json)" -ForegroundColor Yellow
     Write-Fail "Failed to get upload URL"
     exit 1
 }
 
-$uploadUrl = $uploadResponse.upload_url
-$s3Key = $uploadResponse.s3_key
-Write-Success "Got presigned URL"
+$uploadUrl  = $uploadResponse.upload_url
+$s3Key      = $uploadResponse.s3_key
+Write-Success "Got presigned URL (s3_key: $s3Key)"
+
 
 # -- Step 4: Upload audio to S3 -----------------------------------------------
 Write-Step "Uploading audio to S3..."
