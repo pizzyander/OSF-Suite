@@ -1,0 +1,44 @@
+name: docker-compose-run
+
+on:
+  push:
+    branches: ["master", "main"]
+  pull_request:
+    branches: ["master", "main"]
+  workflow_dispatch: 
+
+jobs:
+  build-and-test:
+    name: build first, then test
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: checkout repository code
+      uses: actions/checkout@v4
+
+    - name: verify docker environment
+      run: |
+        docker --version
+        docker compose version
+        
+
+    - name: build the compose service
+      run: docker compose build
+
+    - name: start the containers in detarched mode
+      run: docker compose up -d
+
+
+    - name: wait dor services to be ready
+      run: |
+        echo "waiting for stack convergence..."
+        sleep 20
+
+    - name: check container status
+      run: docker compose ps
+
+    - name: check the combined docker compose logs
+      run: docker compose logs
+
+    - name: tear down environment safely
+      run: docker compose down -v
