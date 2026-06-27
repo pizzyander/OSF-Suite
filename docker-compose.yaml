@@ -49,6 +49,18 @@
       - osf-net
     restart: unless-stopped
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: osf-frontend
+    expose:
+      - "80"
+    networks:
+      - osf-net
+    restart: unless-stopped
+    depends_on:
+      - insights
   insights:
     build:
       context: ./insights

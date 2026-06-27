@@ -1,0 +1,91 @@
+﻿{
+    "meeting_id":  "f68c69a3-6e54-4cf1-a9d3-dd211a33b265",
+    "status":  "done",
+    "transcript":  "Okay, so now I\u0027ve integrated Ulamah into the system, at least for cash in. Oh, that\u0027s great, yes, that\u0027s great, thank you very much. So what does Ulamah do? Uh, Ulamah helps summarize the omitting and just, um, it\u0027s just not to judge the picture, but the school source and it\u0027s free. Okay, but wouldn\u0027t that cost much money? Uh, probably it costs money for computation, the cloud, but, um, on the long run, we are safer using Ulamah than using charging technology, so the, um, see the insights, um, part of the Ujo is very necessary, we may need to, um, use Ulamah as our best choice. Okay, um, I think I\u0027ll buy, okay, I\u0027ll buy. Okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay",
+    "insights":  {
+                     "meeting_intelligence":  {
+                                                  "summary":  "Agent introduces Ulamah software for data processing and assures its value over traditional charging technology. Client shows interest but asks about costs.",
+                                                  "action_items":  [
+                                                                       {
+                                                                           "owner":  "agent",
+                                                                           "task":  "Provide detailed cost breakdown of Ulamah to client",
+                                                                           "deadline":  "By end-of-week"
+                                                                       },
+                                                                       {
+                                                                           "owner":  "client",
+                                                                           "task":  "Review potential savings with Ulamah and consider long-term benefits",
+                                                                           "deadline":  "Next meeting"
+                                                                       }
+                                                                   ],
+                                                  "client_pain_points":  [
+                                                                             "Cost concerns for new technology"
+                                                                         ],
+                                                  "objections_raised":  [
+                                                                            {
+                                                                                "objection":  "Wouldn\u0027t that cost much money?",
+                                                                                "how_handled":  "Acknowledged and offered to discuss value over time"
+                                                                            }
+                                                                        ],
+                                                  "buying_signals":  [
+                                                                         "Client expresses willingness to purchase"
+                                                                     ],
+                                                  "deal_health":  {
+                                                                      "score":  "warm",
+                                                                      "reasoning":  "Initial interest shown by client, but requires further cost breakdown discussion.",
+                                                                      "next_steps":  [
+                                                                                         "Agent provides detailed pricing information and long-term value analysis."
+                                                                                     ]
+                                                                  },
+                                                  "client_personality":  {
+                                                                             "communication_style":  "Inquisitive",
+                                                                             "decision_making":  "Cost-aware, values long-term benefits over immediate expenses",
+                                                                             "key_motivators":  [
+                                                                                                    "Affordability",
+                                                                                                    "Long-term savings"
+                                                                                                ]
+                                                                         },
+                                                  "calendar_schedule":  [
+                                                                            {
+                                                                                "event":  "Follow-up call to discuss pricing and value of Ulamah",
+                                                                                "suggested_date":  "End-of-week",
+                                                                                "participants":  [
+                                                                                                     "Agent",
+                                                                                                     "Client"
+                                                                                                 ]
+                                                                            }
+                                                                        ],
+                                                  "intelligence_insights":  [
+                                                                                "The client is open to new technology but requires detailed cost breakdown."
+                                                                            ]
+                                              },
+                     "coaching":  {
+                                      "metrics":  {
+                                                      "agent_talk_ratio_percentage":  70,
+                                                      "client_talk_ratio_percentage":  30,
+                                                      "open_ended_questions_count":  4,
+                                                      "closed_questions_count":  15
+                                                  },
+                                      "overall_grade":  {
+                                                            "score_out_of_100":  75,
+                                                            "headline_summary":  "Agent showed potential but needs to improve on discussing costs and handling client\u0027s inquiries."
+                                                        },
+                                      "objections_handled":  [
+                                                                 {
+                                                                     "client_objection":  "Wouldn\u0027t that cost much money?",
+                                                                     "agent_response":  "Acknowledged, offered to discuss value over time.",
+                                                                     "effectiveness_score_out_of_10":  7,
+                                                                     "coaching_critique":  "Agent should provide more concrete financial details upfront.",
+                                                                     "exact_alternative_script":  "Certainly. Let\u0027s delve into the cost and potential savings Ulamah offers in detail."
+                                                                 }
+                                                             ],
+                                      "missed_opportunities":  [
+                                                                   {
+                                                                       "opportunity":  "Discussing long-term value of technology upfront.",
+                                                                       "impact":  "Client may have had a quicker decision on purchase without further cost concerns."
+                                                                   }
+                                                               ]
+                                  }
+                 },
+    "created_at":  "2026-06-27T07:27:26.359455",
+    "completed_at":  "2026-06-27T07:36:35.935345"
+}

@@ -10,13 +10,12 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import redis.asyncio as aioredis
 
-from db import init_db, get_session, Agent, Meeting, AgentProfile, get_latest_profile
+from db import init_db, get_session, Agent, Meeting
 from auth import (
     get_current_agent, generate_api_key,
     hash_password, verify_password,
     create_access_token, create_refresh_token, decode_token
 )
-from profile_extractor import extract_text, build_prompt_context
 
 REDIS_URL       = os.getenv("REDIS_URL", "redis://redis:6379")
 WHISPER_URL     = os.getenv("WHISPER_URL", "http://whisper:8000")
@@ -188,148 +187,6 @@ async def change_password(
     db_agent.hashed_password = hash_password(new_password)
     await db.commit()
     return {"message": "Password updated successfully"}
-
-
-# -- Company profile (protected) ----------------------------------------------
-
-@app.post("/agents/profile")
-@limiter.limit("10/minute")
-async def upload_profile(
-    request: Request,
-    file:    UploadFile = File(...),
-    agent:   Agent = Depends(get_current_agent),
-    db:      AsyncSession = Depends(get_session),
-):
-    """
-    Upload or replace a company profile document (PDF / DOCX / TXT).
-    Called at signup and any time the agent wants to update their context.
-
-    Flow:
-      1. Extract raw text from the document.
-      2. Mark all previous profiles for this agent as is_latest=False.
-      3. Persist a new AgentProfile row (is_latest=True, version incremented).
-      4. Write prompt_context to Redis for fast worker lookup (24h TTL).
-    """
-    MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
-
-    file_bytes = await file.read()
-    if len(file_bytes) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="File too large. Maximum size is 10 MB.")
-    if not file_bytes:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
-
-    try:
-        raw_text = extract_text(
-            file_bytes,
-            content_type=file.content_type or "",
-            filename=file.filename or "",
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-
-    prompt_context = build_prompt_context(raw_text)
-
-    # Determine next version number
-    existing = await db.execute(
-        select(AgentProfile)
-        .where(AgentProfile.agent_id == agent.id)
-        .where(AgentProfile.is_latest == True)
-    )
-    current = existing.scalar_one_or_none()
-    next_version = (current.version + 1) if current else 1
-
-    # Retire all existing versions for this agent
-    await db.execute(
-        update(AgentProfile)
-        .where(AgentProfile.agent_id == agent.id)
-        .values(is_latest=False)
-    )
-
-    # Persist new version
-    profile = AgentProfile(
-        id             = str(uuid.uuid4()),
-        agent_id       = agent.id,
-        filename       = file.filename,
-        content_type   = file.content_type,
-        raw_text       = raw_text,
-        prompt_context = prompt_context,
-        version        = next_version,
-        is_latest      = True,
-    )
-    db.add(profile)
-    await db.commit()
-
-    # Cache in Redis with 24h TTL
-    r = aioredis.from_url(REDIS_URL)
-    try:
-        await r.set(f"agent_profile:{agent.id}", prompt_context, ex=86400)
-    finally:
-        await r.aclose()
-
-    return {
-        "message":         "Profile uploaded successfully.",
-        "version":         profile.version,
-        "filename":        profile.filename,
-        "chars_extracted": len(raw_text),
-        "created_at":      profile.created_at,
-    }
-
-
-@app.get("/agents/profile")
-async def get_profile(
-    agent: Agent = Depends(get_current_agent),
-    db:   AsyncSession = Depends(get_session),
-):
-    """
-    Returns the agent's current profile metadata and full version history.
-    Raw text is omitted from the history list to keep the payload small.
-    """
-    latest_result = await db.execute(
-        select(AgentProfile)
-        .where(AgentProfile.agent_id == agent.id)
-        .where(AgentProfile.is_latest == True)
-    )
-    latest = latest_result.scalar_one_or_none()
-
-    if not latest:
-        return {"profile": None, "history": []}
-
-    history_result = await db.execute(
-        select(
-            AgentProfile.id,
-            AgentProfile.version,
-            AgentProfile.filename,
-            AgentProfile.content_type,
-            AgentProfile.is_latest,
-            AgentProfile.created_at,
-        )
-        .where(AgentProfile.agent_id == agent.id)
-        .order_by(AgentProfile.version.desc())
-    )
-    history = [
-        {
-            "id":           row.id,
-            "version":      row.version,
-            "filename":     row.filename,
-            "content_type": row.content_type,
-            "is_latest":    row.is_latest,
-            "created_at":   row.created_at,
-        }
-        for row in history_result.all()
-    ]
-
-    return {
-        "profile": {
-            "id":              latest.id,
-            "version":         latest.version,
-            "filename":        latest.filename,
-            "content_type":    latest.content_type,
-            "chars_extracted": len(latest.raw_text),
-            "created_at":      latest.created_at,
-        },
-        "history": history,
-    }
-
 
 # -- Meeting lifecycle (protected) --------------------------------------------
 
@@ -514,32 +371,33 @@ async def upload_chunk(
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
 
-    # Increment chunk counter and get this chunk's index atomically in Redis
+    # Increment chunk counter atomically in Redis and get this chunk's index
     r = aioredis.from_url(REDIS_URL)
     chunk_index = await r.hincrby(f"meeting:{meeting_id}", "chunks", 1)
     await r.aclose()
 
-    # Persist the counter to Postgres too
+    # Mirror counter to Postgres
     meeting.chunks = chunk_index
     await db.commit()
 
-    # Enqueue: worker will pull this, transcribe, diarize, append in order
+    # Enqueue chunk job — worker pulls this, transcribes, appends in order
     sqs = boto3.client("sqs", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
     sqs.send_message(
         QueueUrl=SQS_QUEUE_URL,
         MessageBody=json.dumps({
-            "type": "chunk",
-            "meeting_id": meeting_id,
-            "s3_key": s3_key,
+            "type":        "chunk",
+            "meeting_id":  meeting_id,
+            "s3_key":      s3_key,
             "chunk_index": chunk_index,
         })
     )
 
     return JSONResponse(status_code=202, content={
-        "meeting_id": meeting_id,
+        "meeting_id":  meeting_id,
         "chunk_index": chunk_index,
-        "status": "queued"
+        "status":      "queued"
     })
+
 
 @app.post("/meetings/{meeting_id}/end")
 @limiter.limit("100/minute")
@@ -558,13 +416,16 @@ async def end_meeting(
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
 
+    # Flag meeting as ended in Redis — worker checks this after each chunk
+    # and promotes to analysis once all chunks are transcribed
+    r = aioredis.from_url(REDIS_URL)
+    await r.hset(f"meeting:{meeting_id}", "ended", "1")
+    await r.aclose()
+
     meeting.status = "processing"
     await db.commit()
 
-    sqs = boto3.client("sqs", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
-    sqs.send_message(QueueUrl=SQS_QUEUE_URL, MessageBody=meeting_id)
     return {"meeting_id": meeting_id, "status": "processing"}
-
 
 @app.get("/meetings/{meeting_id}/results")
 @limiter.limit("100/minute")
@@ -719,7 +580,7 @@ async def get_metrics(db: AsyncSession = Depends(get_session)):
         failed     = await db.execute(text("SELECT COUNT(*) FROM meetings WHERE status = 'failed'"))
         processing = await db.execute(text("SELECT COUNT(*) FROM meetings WHERE status = 'processing'"))
         agents     = await db.execute(text("SELECT COUNT(*) FROM agents WHERE is_active = true"))
-        profiles   = await db.execute(text("SELECT COUNT(*) FROM agent_profiles WHERE is_latest = true"))
+        profiles = await db.execute(text("SELECT COUNT(*) FROM company_context WHERE is_active = true"))
 
         metrics["database"] = {
             "total_meetings":       total.scalar(),
@@ -727,7 +588,7 @@ async def get_metrics(db: AsyncSession = Depends(get_session)):
             "failed_meetings":      failed.scalar(),
             "processing_meetings":  processing.scalar(),
             "active_agents":        agents.scalar(),
-            "agents_with_profiles": profiles.scalar(),
+            "agents_with_context": profiles.scalar(),
         }
     except Exception as e:
         metrics["database"] = {"error": str(e)}

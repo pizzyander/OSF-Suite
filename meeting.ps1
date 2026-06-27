@@ -106,13 +106,13 @@ $chunkResponse = curl.exe -s -X POST "$BaseUrl/meetings/$meetingId/chunk" `
     -H "Content-Type: application/x-www-form-urlencoded" `
     -d "s3_key=$s3Key" | ConvertFrom-Json
 
-if (-not $chunkResponse.chunk) {
-    Write-Fail "Chunk upload failed"
+if (-not $chunkResponse.chunk_index -and $chunkResponse.chunk_index -ne 0) {
+    Write-Fail "Chunk upload failed: $($chunkResponse | ConvertTo-Json)"
     exit 1
 }
 
-Write-Success "Chunk $($chunkResponse.chunk) transcribed"
-Write-Host "  Preview: $($chunkResponse.chunk_text.Substring(0, [Math]::Min(100, $chunkResponse.chunk_text.Length)))..." -ForegroundColor Gray
+Write-Success "Chunk $($chunkResponse.chunk_index) queued for transcription"
+Write-Host "  Status: $($chunkResponse.status)" -ForegroundColor Gray
 
 # -- Step 6: End meeting ------------------------------------------------------
 Write-Step "Ending meeting and triggering insights..."

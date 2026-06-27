@@ -1,0 +1,666 @@
+# OSF-Suite Architecture Documentation
+
+## Overview
+
+OSF-Suite is a self-hosted AI-powered sales coaching platform. It records or ingests
+sales call audio, transcribes it, runs AI analysis against a configurable company
+context, and returns structured meeting intelligence and agent coaching feedback.
+
+---
+
+## System Diagram
+
+```
+                        ┌─────────────────────────────────────┐
+                        │         CLIENT (PowerShell /         │
+                        │         Future Web UI)               │
+                        └────────────────┬────────────────────┘
+                                         │ HTTP (port 8001)
+                                         ▼
+┌────────────────────────────────────────────────────────────────┐
+│                    insights-service  (FastAPI)                  │
+│                         port 8001                              │
+│                                                                │
+│  /agents/register       /agents/login        /agents/refresh   │
+│  /agents/me             /agents/password                       │
+│  /agents/context        /agents/context/text                   │
+│  /agents/context/upload /agents/context/history                │
+│  /meetings/start        /meetings/{id}/upload-url              │
+│  /meetings/{id}/chunk   /meetings/{id}/end                     │
+│  /meetings/{id}/results /meetings/{id}                         │
+│  /meetings              /growth              /health           │
+│  /metrics                                                      │
+└──────┬──────────┬──────────────┬──────────────────────────────┘
+       │          │              │
+       │          │              │ publishes meeting_id
+       │          │              ▼
+       │          │       ┌─────────────┐      ┌──────────────────┐
+       │          │       │  AWS SQS    │─────▶│   osf-worker     │
+       │          │       │  Queue      │      │  (Python)        │
+       │          │       └─────────────┘      │                  │
+       │          │                            │  1. reads SQS    │
+       │          │                            │  2. gets context │
+       │          │                            │     from Redis   │
+       │          │                            │  3. calls Ollama │
+       │          │                            │  4. saves to DB  │
+       │          │                            │  5. caches Redis │
+       │          │                            └──────┬───────────┘
+       │          │                                   │
+       │    presigned URL                             │
+       │          │                                   │
+       ▼          ▼                                   ▼
+┌──────────┐ ┌─────────┐  ┌──────────────┐  ┌──────────────────┐
+│ whisper  │ │  AWS S3 │  │   ollama     │  │   AWS RDS        │
+│ -service │ │  Bucket │  │  (phi3:mini) │  │   PostgreSQL     │
+│ port 8000│ │  audio  │  │  port 11434  │  │                  │
+│(internal)│ │  files  │  │              │  │  agents          │
+└──────────┘ └─────────┘  └──────────────┘  │  meetings        │
+                                             │  company_context │
+┌──────────────────────────────┐             └──────────────────┘
+│  osf-redis  (Redis 7)        │
+│  port 6379 (internal only)   │
+│                              │
+│  meeting:{id}     hash       │
+│  agent_context:{agent_id}    │
+└──────────────────────────────┘
+```
+
+---
+
+## Services
+
+### 1. insights-service (FastAPI)
+**Container:** `insights-service`
+**Port:** `0.0.0.0:8001` (externally reachable on host network)
+**Role:** Main API. Handles all auth, meeting lifecycle, context management,
+          and result retrieval. The only service clients talk to directly.
+
+### 2. osf-worker (Python)
+**Container:** `osf-worker`
+**Port:** None (outbound only — polls SQS)
+**Role:** Background job processor. Pulls meeting IDs from SQS, fetches the
+          transcript and agent context, sends to Ollama for analysis, saves
+          results to Postgres and Redis.
+
+### 3. whisper-service
+**Container:** `whisper-service`
+**Port:** `8000` (internal to osf-net only — not host-mapped)
+**Role:** Audio transcription via OpenAI Whisper (CPU, base model).
+          Called by insights-service during chunk processing.
+
+### 4. ollama
+**Container:** `ollama`
+**Port:** `0.0.0.0:11434` (externally reachable — NO AUTH)
+**Model:** `phi3:mini`
+**Role:** Local LLM inference. Called by osf-worker to generate structured
+          JSON insights from transcript + company context.
+**⚠ Warning:** No built-in authentication. Should be bound to
+          `127.0.0.1:11434` in production.
+
+### 5. osf-redis
+**Container:** `osf-redis`
+**Port:** `6379` (internal to osf-net only)
+**Role:** Fast cache for active meeting state and agent company context.
+          Worker reads context from here at prompt-build time to avoid
+          a Postgres round-trip per meeting.
+
+### 6. AWS RDS (PostgreSQL)
+**Host:** External — AWS us-east-1
+**Port:** `5432`
+**Role:** Durable storage for agents, meetings, insights, and company context.
+**Tables:** `agents`, `meetings`, `company_context`
+
+### 7. AWS SQS
+**Location:** AWS us-east-1
+**Role:** Job queue between insights-service and osf-worker.
+          insights-service publishes a meeting_id when a meeting ends;
+          osf-worker consumes it and begins analysis.
+
+### 8. AWS S3
+**Bucket:** `osf-suite-audio`
+**Role:** Audio file storage. Clients upload directly via presigned PUT URLs.
+          osf-worker fetches audio from S3 for transcription.
+
+---
+
+## External Entry Points
+
+| Entry Point | Bound To | Auth | Risk |
+|---|---|---|---|
+| insights-service :8001 | 0.0.0.0 | JWT Bearer | Primary surface — has auth |
+| ollama :11434 | 0.0.0.0 | None | No auth — bind to 127.0.0.1 |
+| AWS RDS :5432 | VPC/security group | Password | Rotate credentials regularly |
+| AWS SQS | AWS IAM | IAM key | Low risk — IAM scoped |
+| AWS S3 (presigned URLs) | Public per URL | Scoped + expiring | Low risk — time-limited |
+
+**Internal only (not reachable outside Docker network):**
+- whisper-service :8000
+- osf-redis :6379
+
+---
+
+## Database Schema
+
+### agents
+| Column | Type | Notes |
+|---|---|---|
+| id | String (UUID) | Primary key |
+| name | String | Display name |
+| email | String | Unique, indexed |
+| hashed_password | String | bcrypt, 12 rounds |
+| api_key | String | `osf_` prefix + 40 random chars |
+| is_active | Boolean | Soft disable |
+| created_at | DateTime | UTC |
+
+### meetings
+| Column | Type | Notes |
+|---|---|---|
+| id | String (UUID) | Primary key |
+| user_id | String | FK → agents.id, indexed |
+| status | String | `recording` → `processing` → `done` / `failed` |
+| transcript | Text | Full diarized transcript |
+| insights | JSON | Full nested insights object (see Output Schema) |
+| chunks | Integer | Number of audio chunks processed |
+| created_at | DateTime | UTC |
+| completed_at | DateTime | UTC, set when status = done |
+
+### company_context
+| Column | Type | Notes |
+|---|---|---|
+| id | String (UUID) | Primary key |
+| agent_id | String | FK → agents.id, indexed |
+| version | String (UUID) | Unique per upload |
+| source_type | String | `pdf` / `docx` / `text` |
+| original_filename | String | Null for raw text input |
+| extracted_text | Text | Plain text, max 50,000 chars |
+| is_active | Boolean | Only one active per agent at a time |
+| created_at | DateTime | UTC |
+
+---
+
+## Redis Key Schema
+
+| Key | Type | Value | TTL |
+|---|---|---|---|
+| `meeting:{meeting_id}` | Hash | `status`, `chunks`, `transcript`, `user_id`, `insights`, `coaching` | None |
+| `agent_context:{agent_id}` | String | Extracted plain text of active company context | 7 days (refreshed on upload) |
+
+---
+
+## API Reference
+
+All protected endpoints require:
+```
+Authorization: Bearer <access_token>
+```
+
+---
+
+### Auth Endpoints (Public)
+
+#### POST /agents/register
+Register a new agent.
+
+**Input:**
+```json
+{
+  "name": "John Doe",
+  "email": "john@company.com",
+  "password": "SecurePass123!"
+}
+```
+
+**Output:**
+```json
+{
+  "agent_id": "uuid",
+  "name": "John Doe",
+  "email": "john@company.com",
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "token_type": "bearer",
+  "expires_in_minutes": 480
+}
+```
+
+---
+
+#### POST /agents/login
+**Input:**
+```json
+{ "email": "john@company.com", "password": "SecurePass123!" }
+```
+
+**Output:**
+```json
+{
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "token_type": "bearer",
+  "expires_in_minutes": 480
+}
+```
+
+---
+
+#### POST /agents/refresh
+**Input:**
+```json
+{ "refresh_token": "eyJ..." }
+```
+
+**Output:**
+```json
+{ "access_token": "eyJ...", "token_type": "bearer", "expires_in_minutes": 480 }
+```
+
+---
+
+### Agent Endpoints (Protected)
+
+#### GET /agents/me
+**Output:**
+```json
+{
+  "agent_id": "uuid",
+  "name": "John Doe",
+  "email": "john@company.com",
+  "created_at": "2026-06-19T23:00:00"
+}
+```
+
+---
+
+#### PUT /agents/password
+**Input:**
+```json
+{ "old_password": "old", "new_password": "new" }
+```
+
+**Output:**
+```json
+{ "message": "Password updated successfully" }
+```
+
+---
+
+### Company Context Endpoints (Protected)
+
+#### POST /agents/context/text
+Upload company info and pricing as raw text.
+
+**Input:**
+```json
+{ "text": "Company: Acme Corp\nPricing: Plan A $99/mo..." }
+```
+
+**Output:**
+```json
+{
+  "context_id": "uuid",
+  "version": "uuid",
+  "source_type": "text",
+  "original_filename": null,
+  "character_count": 312,
+  "created_at": "2026-06-19T23:16:21",
+  "message": "Company context saved and active."
+}
+```
+
+---
+
+#### POST /agents/context/upload
+Upload a PDF, DOCX, or .txt file. Multipart form data.
+
+**Input:** `multipart/form-data` with field `file`
+**Accepted:** `.pdf`, `.docx`, `.txt`, `.text` (max ~50,000 chars extracted)
+
+**Output:** Same shape as `/context/text` above, with `original_filename` set.
+
+**Errors:**
+- `422` — unsupported file type, empty file, unreadable/scanned PDF, encoding error
+
+---
+
+#### GET /agents/context
+Fetch current active context.
+
+**Output:**
+```json
+{
+  "context_id": "uuid",
+  "version": "uuid",
+  "source_type": "text",
+  "original_filename": null,
+  "extracted_text": "Company: ...",
+  "character_count": 312,
+  "created_at": "2026-06-19T23:16:21"
+}
+```
+**Errors:** `404` if no context uploaded yet.
+
+---
+
+#### GET /agents/context/history
+All versions, newest first.
+
+**Output:**
+```json
+{
+  "total_versions": 3,
+  "history": [
+    {
+      "context_id": "uuid",
+      "version": "uuid",
+      "source_type": "pdf",
+      "original_filename": "pricing_2026.pdf",
+      "character_count": 4821,
+      "is_active": true,
+      "created_at": "2026-06-19T23:16:26"
+    }
+  ]
+}
+```
+
+---
+
+#### DELETE /agents/context
+Deactivates current context. History preserved. AI receives no context
+on future meetings until a new one is uploaded.
+
+**Output:**
+```json
+{ "message": "Company context cleared. Previous versions remain in history." }
+```
+
+---
+
+### Meeting Lifecycle (Protected)
+
+#### POST /meetings/start
+Creates a new meeting record.
+
+**Output:**
+```json
+{ "meeting_id": "uuid" }
+```
+
+---
+
+#### GET /meetings/{meeting_id}/upload-url
+Get a presigned S3 URL to upload an audio file directly.
+
+**Query params:** `filename=recording.ogg`
+
+**Output:**
+```json
+{
+  "upload_url": "https://s3.amazonaws.com/osf-suite-audio/...",
+  "s3_key": "meetings/{meeting_id}/recording.ogg"
+}
+```
+
+---
+
+#### POST /meetings/{meeting_id}/chunk
+Notify the API that audio has been uploaded to S3. Triggers transcription
+(Whisper) and diarization in parallel. Appends result to meeting transcript.
+
+**Input:** `application/x-www-form-urlencoded`
+```
+s3_key=meetings/{meeting_id}/recording.ogg
+```
+
+**Output:**
+```json
+{
+  "chunk": 1,
+  "chunk_text": "[Agent 00:00]: Good morning, I wanted to follow up..."
+}
+```
+
+---
+
+#### POST /meetings/{meeting_id}/end
+Marks meeting as `processing` and publishes meeting_id to SQS.
+Worker picks it up and begins AI analysis.
+
+**Output:**
+```json
+{ "meeting_id": "uuid", "status": "processing" }
+```
+
+---
+
+#### GET /meetings/{meeting_id}/results
+Poll for analysis results. Returns immediately with current status.
+
+**Output (processing):**
+```json
+{
+  "meeting_id": "uuid",
+  "status": "processing",
+  "transcript": "...",
+  "insights": null,
+  "created_at": "...",
+  "completed_at": null
+}
+```
+
+**Output (done):**
+```json
+{
+  "meeting_id": "uuid",
+  "status": "done",
+  "transcript": "[Agent 00:00]: ...\n[Client 00:12]: ...",
+  "insights": {
+    "meeting_intelligence": {
+      "summary": "2-3 sentence overview",
+      "action_items": [
+        { "owner": "agent|client", "task": "...", "deadline": "..." }
+      ],
+      "client_pain_points": ["..."],
+      "objections_raised": [
+        { "objection": "...", "how_handled": "..." }
+      ],
+      "buying_signals": ["..."],
+      "deal_health": {
+        "score": "hot|warm|cold",
+        "reasoning": "...",
+        "next_steps": ["..."]
+      },
+      "client_personality": {
+        "communication_style": "...",
+        "decision_making": "...",
+        "key_motivators": ["..."]
+      },
+      "calendar_schedule": [
+        { "event": "...", "suggested_date": "...", "participants": ["..."] }
+      ],
+      "intelligence_insights": ["..."]
+    },
+    "coaching": {
+      "metrics": {
+        "agent_talk_ratio_percentage": 60,
+        "client_talk_ratio_percentage": 40,
+        "open_ended_questions_count": 5,
+        "closed_questions_count": 3
+      },
+      "overall_grade": {
+        "score_out_of_100": 74,
+        "headline_summary": "Solid discovery but left money on the table at close."
+      },
+      "objections_handled": [
+        {
+          "client_objection": "...",
+          "agent_response": "...",
+          "effectiveness_score_out_of_10": 7,
+          "coaching_critique": "...",
+          "exact_alternative_script": "..."
+        }
+      ],
+      "missed_revenue_cues": [
+        {
+          "timestamp_or_context": "...",
+          "client_buying_signal": "...",
+          "agent_missed_action": "..."
+        }
+      ],
+      "top_three_action_items": ["...", "...", "..."]
+    }
+  },
+  "created_at": "...",
+  "completed_at": "..."
+}
+```
+
+---
+
+### History & Analytics (Protected)
+
+#### GET /meetings
+List completed meetings. Supports pagination.
+
+**Query params:** `limit=20&offset=0`
+
+**Output:**
+```json
+{
+  "total": 5,
+  "meetings": [
+    {
+      "meeting_id": "uuid",
+      "created_at": "...",
+      "completed_at": "...",
+      "summary": "...",
+      "deal_health": { "score": "warm", "reasoning": "..." }
+    }
+  ]
+}
+```
+
+---
+
+#### GET /meetings/{meeting_id}
+Full detail for a single meeting including transcript and insights.
+Same shape as `/meetings/{id}/results`.
+
+---
+
+#### GET /growth
+Trend data across all completed meetings for the authenticated agent.
+
+**Output:**
+```json
+{
+  "meetings_analyzed": 12,
+  "growth": [
+    {
+      "meeting_id": "uuid",
+      "date": "...",
+      "deal_health_score": "warm",
+      "buying_signals_count": 3,
+      "objections_count": 2,
+      "action_items_count": 4,
+      "pain_points_count": 2
+    }
+  ]
+}
+```
+
+---
+
+### System Endpoints
+
+#### GET /health
+**Output:** `{ "status": "ok" }` — no auth required.
+
+#### GET /metrics
+SQS queue depth, DB meeting counts by status, S3 file count, timestamp.
+No auth required (consider protecting in production).
+
+---
+
+## Full Meeting Flow (Step by Step)
+
+```
+1. POST /agents/login              → get access_token
+
+2. POST /meetings/start            → get meeting_id
+
+3. GET  /meetings/{id}/upload-url  → get presigned S3 URL + s3_key
+
+4. PUT  <presigned_url>            → upload audio bytes directly to S3
+
+5. POST /meetings/{id}/chunk       → API fetches from S3, sends to Whisper
+   (body: s3_key=...)                + Diarization in parallel, appends
+                                      diarized text to meeting.transcript
+                                      (repeat steps 3-5 for each chunk)
+
+6. POST /meetings/{id}/end         → status → "processing"
+                                      meeting_id published to SQS
+
+7. [osf-worker picks up SQS job]
+   a. Reads meeting.transcript from Postgres
+   b. Reads agent_context:{agent_id} from Redis
+      (falls back to Postgres if cache miss)
+   c. Builds prompt with company context injected
+   d. POST http://ollama:11434/api/generate (phi3:mini, stream=False)
+   e. Parses NDJSON response, extracts first line
+   f. json.loads the model's response field
+   g. Saves insights to meeting.insights, status → "done"
+   h. Caches insights + coaching separately in Redis
+
+8. GET /meetings/{id}/results      → poll until status = "done"
+   (poll every 15s, up to 40 attempts = 10 minutes max)
+```
+
+---
+
+## Company Context Injection
+
+When an agent uploads company context (pricing, policies, product info),
+it is stored in Postgres and cached in Redis under `agent_context:{agent_id}`.
+
+At analysis time, the worker injects it into the LLM prompt as:
+
+```
+COMPANY CONTEXT (use this to evaluate the agent's knowledge, pricing accuracy,
+and alignment with company policy — flag any deviations in your coaching feedback):
+---------------------------------------------------------------------------
+<extracted_text>
+---------------------------------------------------------------------------
+```
+
+This allows the AI to:
+- Flag if an agent quoted the wrong price
+- Identify if payment terms were misrepresented
+- Catch unauthorised discounts being offered
+- Coach against company policy violations specifically
+
+Agents without context uploaded receive the same prompt minus this block —
+fully backward compatible.
+
+---
+
+## Rate Limits
+
+| Endpoint group | Limit |
+|---|---|
+| /agents/register | 5 requests/minute |
+| /agents/login | 10 requests/minute |
+| /meetings/* | 100 requests/minute |
+
+Enforced via `slowapi` using agent ID (from JWT) or IP address as the key.
+
+---
+
+## Token Lifecycle
+
+| Token | Default expiry | Purpose |
+|---|---|---|
+| access_token | 480 minutes (8 hours) | API authentication |
+| refresh_token | 7 days | Obtain new access token |
+
+The PowerShell client auto-refreshes the token when it detects expiry
+(`$tokenExpiry` checked before each step).
