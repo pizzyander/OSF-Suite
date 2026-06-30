@@ -404,6 +404,7 @@ async def upload_chunk(
 async def end_meeting(
     request: Request,
     meeting_id: str,
+    payload: dict = {},
     agent: Agent = Depends(get_current_agent),
     db: AsyncSession = Depends(get_session)
 ):
@@ -416,16 +417,21 @@ async def end_meeting(
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
 
-    # Flag meeting as ended in Redis — worker checks this after each chunk
-    # and promotes to analysis once all chunks are transcribed
+    total_chunks = payload.get("total_chunks", 0)
+
     r = aioredis.from_url(REDIS_URL)
-    await r.hset(f"meeting:{meeting_id}", "ended", "1")
+    await r.hset(f"meeting:{meeting_id}", mapping={
+        "ended":        "1",
+        "total_chunks": str(total_chunks)
+    })
     await r.aclose()
 
     meeting.status = "processing"
+    meeting.chunks = total_chunks
     await db.commit()
 
-    return {"meeting_id": meeting_id, "status": "processing"}
+    return {"meeting_id": meeting_id, "status": "processing", "total_chunks": total_chunks}
+
 
 @app.get("/meetings/{meeting_id}/results")
 @limiter.limit("100/minute")

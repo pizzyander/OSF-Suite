@@ -6,14 +6,14 @@ from sqlalchemy import select
 from db import init_db, AsyncSessionLocal, Meeting
 from db_context import CompanyContext
 
-REDIS_URL       = os.getenv("REDIS_URL", "redis://redis:6379")
-OLLAMA_URL      = os.getenv("OLLAMA_URL", "http://ollama:11434")
-OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL", "phi3:mini")
-SQS_QUEUE_URL   = os.getenv("SQS_QUEUE_URL", "")
+REDIS_URL       = os.getenv("REDIS_URL",       "redis://redis:6379")
+OLLAMA_URL      = os.getenv("OLLAMA_URL",      "http://ollama:11434")
+OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL",    "phi3:mini")
+SQS_QUEUE_URL   = os.getenv("SQS_QUEUE_URL",   "")
 AWS_REGION      = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
-WHISPER_URL     = os.getenv("WHISPER_URL", "http://whisper:8000")
+WHISPER_URL     = os.getenv("WHISPER_URL",     "http://whisper:8000")
 DIARIZATION_URL = os.getenv("DIARIZATION_URL", "http://diarization:8002")
-S3_BUCKET       = os.getenv("S3_BUCKET", "")
+S3_BUCKET       = os.getenv("S3_BUCKET",       "")
 
 SYSTEM_PROMPT = """
 You are an elite private sales performance coach AND a senior sales intelligence analyst.
@@ -108,9 +108,9 @@ def merge_transcript_diarization(transcript_segments, diarization_segments):
         return " ".join(s.get("text", "") for s in transcript_segments)
     lines = []
     for t_seg in transcript_segments:
-        t_start   = t_seg.get("start", 0)
-        t_end     = t_seg.get("end", 0)
-        t_text    = t_seg.get("text", "").strip()
+        t_start      = t_seg.get("start", 0)
+        t_end        = t_seg.get("end", 0)
+        t_text       = t_seg.get("text", "").strip()
         best_role    = "Unknown"
         best_overlap = 0
         for d_seg in diarization_segments:
@@ -124,7 +124,7 @@ def merge_transcript_diarization(transcript_segments, diarization_segments):
 
 
 async def get_agent_context(agent_id: str) -> str:
-    """Redis-first, Postgres fallback."""
+    """Redis-first, Postgres fallback, empty string if none uploaded."""
     try:
         r      = aioredis.from_url(REDIS_URL)
         cached = await r.get(f"agent_context:{agent_id}")
@@ -196,11 +196,17 @@ async def analyze(transcript: str, company_context: str) -> dict:
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        clean = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        clean = raw.strip() \
+                   .removeprefix("```json") \
+                   .removeprefix("```") \
+                   .removesuffix("```") \
+                   .strip()
         try:
             return json.loads(clean)
         except json.JSONDecodeError as e:
-            raise ValueError(f"Model returned invalid JSON (len={len(raw)}): {raw[:500]!r}") from e
+            raise ValueError(
+                f"Model returned invalid JSON (len={len(raw)}): {raw[:500]!r}"
+            ) from e
 
 
 # ── Chunk processing ──────────────────────────────────────────────────────────
@@ -213,21 +219,24 @@ async def process_chunk(message: dict):
     print(f"Processing chunk {chunk_index} for meeting {meeting_id}")
 
     # Pull audio from S3
-    s3        = boto3.client("s3", region_name=AWS_REGION)
-    s3_obj    = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+    s3          = boto3.client("s3", region_name=AWS_REGION)
+    s3_obj      = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
     audio_bytes = s3_obj["Body"].read()
-    filename  = s3_key.split("/")[-1]
+    filename    = s3_key.split("/")[-1]
+
+    # Detect content type from filename
+    content_type = "audio/webm" if filename.endswith(".webm") else "audio/ogg"
 
     # Transcribe + diarize in parallel
     async with httpx.AsyncClient(timeout=300) as client:
         transcribe_task = client.post(
             f"{WHISPER_URL}/transcribe",
-            files={"file": (filename, audio_bytes, "audio/webm")},
+            files={"file": (filename, audio_bytes, content_type)},
             data={"language": "en", "word_timestamps": "true"}
         )
         diarize_task = client.post(
             f"{DIARIZATION_URL}/diarize",
-            files={"file": (filename, audio_bytes, "audio/webm")}
+            files={"file": (filename, audio_bytes, content_type)}
         )
         transcribe_resp, diarize_resp = await asyncio.gather(
             transcribe_task, diarize_task, return_exceptions=True
@@ -252,23 +261,27 @@ async def process_chunk(message: dict):
         diarization_segments
     )
 
-    # Store this chunk's text keyed by index — preserves order regardless of
-    # which chunk the worker picks up first out of SQS
+    # Store chunk text keyed by index — order-safe regardless of SQS delivery order
     r = aioredis.from_url(REDIS_URL)
     await r.hset(f"meeting:{meeting_id}:chunks", str(chunk_index), diarized_text)
 
-    # Check if meeting has ended AND all expected chunks are now transcribed
-    meeting_meta = await r.hgetall(f"meeting:{meeting_id}")
-    ended        = meeting_meta.get(b"ended", b"0") == b"1"
-    total_chunks = int(meeting_meta.get(b"chunks", b"0"))
-    done_count   = await r.hlen(f"meeting:{meeting_id}:chunks")
+    # Read total_chunks set by /end — zero means /end hasn't fired yet
+    meeting_meta  = await r.hgetall(f"meeting:{meeting_id}")
+    ended         = meeting_meta.get(b"ended", b"0") == b"1"
+    total_chunks  = int(meeting_meta.get(b"total_chunks", b"0"))
+    done_count    = await r.hlen(f"meeting:{meeting_id}:chunks")
     await r.aclose()
 
-    print(f"Chunk {chunk_index} transcribed ({len(diarized_text)} chars) | "
-          f"done={done_count}/{total_chunks} ended={ended}")
+    print(
+        f"Chunk {chunk_index} transcribed ({len(diarized_text)} chars) | "
+        f"done={done_count}/{total_chunks} ended={ended}"
+    )
 
-    if ended and done_count >= total_chunks:
-        # All chunks done — assemble transcript in order and queue analysis
+    # Trigger analysis only when:
+    #   1. /end has fired (ended=1)
+    #   2. exact total_chunks is known (> 0)
+    #   3. every chunk has been transcribed
+    if ended and total_chunks > 0 and done_count >= total_chunks:
         r         = aioredis.from_url(REDIS_URL)
         chunk_map = await r.hgetall(f"meeting:{meeting_id}:chunks")
         await r.aclose()
@@ -279,7 +292,7 @@ async def process_chunk(message: dict):
         ]
         full_transcript = "\n".join(ordered_texts).strip()
 
-        # Persist assembled transcript to Postgres
+        # Persist assembled transcript
         async with AsyncSessionLocal() as db:
             db_result = await db.execute(
                 select(Meeting).where(Meeting.id == meeting_id)
@@ -289,8 +302,10 @@ async def process_chunk(message: dict):
                 meeting.transcript = full_transcript
                 await db.commit()
 
-        print(f"All {total_chunks} chunks assembled for {meeting_id} "
-              f"({len(full_transcript)} chars) — queuing analysis")
+        print(
+            f"All {total_chunks} chunks assembled for {meeting_id} "
+            f"({len(full_transcript)} chars) — queuing analysis"
+        )
 
         sqs = boto3.client("sqs", region_name=AWS_REGION)
         sqs.send_message(
@@ -305,7 +320,7 @@ async def process_chunk(message: dict):
 # ── Meeting analysis ──────────────────────────────────────────────────────────
 
 async def process_message(meeting_id: str):
-    # Session 1: read transcript + agent_id, then close immediately
+    # Session 1: read only — close before Ollama call
     async with AsyncSessionLocal() as db:
         db_result = await db.execute(
             select(Meeting).where(Meeting.id == meeting_id)
@@ -320,15 +335,13 @@ async def process_message(meeting_id: str):
     if not transcript or not transcript.strip():
         raise ValueError("Transcript is empty - cannot generate insights")
 
-    # Fetch context (has its own sessions internally)
     company_context = await get_agent_context(agent_id)
     if company_context:
         print(f"Using company context for agent {agent_id} ({len(company_context)} chars)")
     else:
         print(f"No company context for agent {agent_id} — proceeding without it")
 
-    # Ollama call — DB session deliberately closed before this
-    # so a long inference run doesn't kill the connection
+    # Ollama inference — no DB session held open during this
     print(f"Analyzing meeting {meeting_id}...")
     insights = await analyze(transcript, company_context)
 
@@ -378,7 +391,7 @@ async def run():
                 body    = message["Body"]
                 receipt = message["ReceiptHandle"]
 
-                # Route by message type — fallback handles legacy plain string IDs
+                # Route by type — fallback handles legacy plain string meeting IDs
                 try:
                     payload  = json.loads(body)
                     msg_type = payload.get("type", "analyze")
@@ -403,8 +416,9 @@ async def run():
 
                 except Exception as e:
                     print(f"Failed to process {meeting_id} ({msg_type}): {repr(e)}")
-                    # Mark as failed only for analyze jobs — chunk failures
-                    # are retried via SQS visibility timeout
+
+                    # Mark failed only for analyze jobs
+                    # Chunk failures stay in queue for SQS redelivery
                     if msg_type == "analyze":
                         try:
                             async with AsyncSessionLocal() as db:
@@ -417,9 +431,6 @@ async def run():
                                     await db.commit()
                         except Exception:
                             pass
-                    # Don't delete chunk messages on failure —
-                    # let SQS redeliver after visibility timeout
-                    if msg_type != "chunk":
                         sqs.delete_message(
                             QueueUrl=SQS_QUEUE_URL,
                             ReceiptHandle=receipt
