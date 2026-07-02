@@ -124,7 +124,6 @@
       - certbot-etc:/etc/letsencrypt
       - certbot-var:/var/lib/letsencrypt
       - certbot-www:/var/www/certbot
-    entrypoint: "true"  # don't run anything by default; we invoke it manually/via cron
 
   redis:
     image: redis:7-alpine
