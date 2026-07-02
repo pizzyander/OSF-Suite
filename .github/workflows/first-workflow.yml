@@ -1,44 +1,94 @@
-name: docker-compose-run
+name: Deploy OSF-Suite to EC2 via ECR
 
 on:
   push:
-    branches: ["master"]
-  pull_request:
-    branches: ["master"]
-  workflow_dispatch: 
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
 
 jobs:
-  build-and-test:
-    name: build first, then test
+  build-and-push:
     runs-on: ubuntu-latest
-
     steps:
-    - name: checkout repository code
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: verify docker environment
-      run: |
-        docker --version
-        docker compose version
-        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-    - name: build the compose service
-      run: docker compose build
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
 
-    - name: start the containers in detarched mode
-      run: docker compose up -d
+      # whisper: Dockerfile lives at repo root, build context is root
+      - name: Build and push whisper-service image
+        run: |
+          docker build -t $ECR_REGISTRY/osf-suite/whisper-service:latest -f dockerfile .
+          docker push $ECR_REGISTRY/osf-suite/whisper-service:latest
 
+      # insights and worker share the exact same build (same context,
+      # same Dockerfile) - only the runtime `command:` differs in compose.
+      # Build once, push under both tags to avoid duplicate work.
+      - name: Build insights/worker shared image
+        run: |
+          docker build -t $ECR_REGISTRY/osf-suite/insights:latest -f insights/dockerfile insights
+          docker tag $ECR_REGISTRY/osf-suite/insights:latest $ECR_REGISTRY/osf-suite/worker:latest
 
-    - name: wait dor services to be ready
-      run: |
-        echo "waiting for stack convergence..."
-        sleep 20
+      - name: Push insights image
+        run: docker push $ECR_REGISTRY/osf-suite/insights:latest
 
-    - name: check container status
-      run: docker compose ps
+      - name: Push worker image
+        run: docker push $ECR_REGISTRY/osf-suite/worker:latest
 
-    - name: check the combined docker compose logs
-      run: docker compose logs
+      - name: Build and push frontend image
+        run: |
+          docker build -t $ECR_REGISTRY/osf-suite/frontend:latest -f frontend/dockerfile frontend
+          docker push $ECR_REGISTRY/osf-suite/frontend:latest
 
-    - name: tear down environment safely
-      run: docker compose down -v
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull latest images and restart on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            cd ~/OSF-Suite
+
+            echo "Authenticating to ECR via instance role..."
+            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+              docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+
+            echo "Pulling latest code (for compose file / nginx config changes)..."
+            git pull origin main
+
+            echo "Pulling latest images from ECR..."
+            docker compose pull
+
+            echo "Restarting stack..."
+            docker compose up -d
+
+            echo "Pruning old unused images..."
+            docker image prune -f
+
+      - name: Verify deployment
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            docker compose ps
+            curl -Ik https://hygini.app/health || exit 1
