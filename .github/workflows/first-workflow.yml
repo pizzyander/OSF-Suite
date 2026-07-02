@@ -28,25 +28,30 @@ jobs:
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build and push insights image
+      # whisper: Dockerfile lives at repo root, build context is root
+      - name: Build and push whisper-service image
         run: |
-          docker build -t $ECR_REGISTRY/osf-suite/insights:latest -f insights/Dockerfile insights
-          docker push $ECR_REGISTRY/osf-suite/insights:latest
+          docker build -t $ECR_REGISTRY/osf-suite/whisper-service:latest -f dockerfile .
+          docker push $ECR_REGISTRY/osf-suite/whisper-service:latest
 
-      - name: Build and push worker image
+      # insights and worker share the exact same build (same context,
+      # same Dockerfile) - only the runtime `command:` differs in compose.
+      # Build once, push under both tags to avoid duplicate work.
+      - name: Build insights/worker shared image
         run: |
-          docker build -t $ECR_REGISTRY/osf-suite/worker:latest -f worker/Dockerfile worker
-          docker push $ECR_REGISTRY/osf-suite/worker:latest
+          docker build -t $ECR_REGISTRY/osf-suite/insights:latest -f insights/dockerfile insights
+          docker tag $ECR_REGISTRY/osf-suite/insights:latest $ECR_REGISTRY/osf-suite/worker:latest
+
+      - name: Push insights image
+        run: docker push $ECR_REGISTRY/osf-suite/insights:latest
+
+      - name: Push worker image
+        run: docker push $ECR_REGISTRY/osf-suite/worker:latest
 
       - name: Build and push frontend image
         run: |
-          docker build -t $ECR_REGISTRY/osf-suite/frontend:latest -f frontend/Dockerfile frontend
+          docker build -t $ECR_REGISTRY/osf-suite/frontend:latest -f frontend/dockerfile frontend
           docker push $ECR_REGISTRY/osf-suite/frontend:latest
-
-      - name: Build and push whisper-service image
-        run: |
-          docker build -t $ECR_REGISTRY/osf-suite/whisper-service:latest -f whisper-service/Dockerfile whisper-service
-          docker push $ECR_REGISTRY/osf-suite/whisper-service:latest
 
   deploy:
     needs: build-and-push
