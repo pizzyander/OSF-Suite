@@ -19,11 +19,13 @@ export const api = {
   login:          (email, password)         => request('POST', '/agents/login',    { email, password }),
   register:       (name, email, pass)       => request('POST', '/agents/register', { name, email, password: pass }),
   me:             (token)                   => request('GET',  '/agents/me',       null, token),
+  changePassword: (token, old_password, new_password) =>
+                                               request('PUT',  '/agents/password', { old_password, new_password }, token),
 
   startMeeting:   (token)                   => request('POST', '/meetings/start',  null, token),
   endMeeting:     (token, id, total_chunks) => request('POST', `/meetings/${id}/end`, { total_chunks }, token),
   getResults:     (token, id)               => request('GET',  `/meetings/${id}/results`, null, token),
-  getMeetings:    (token)                   => request('GET',  '/meetings/?limit=20', null, token),
+  getMeetings:    (token)                   => request('GET',  '/meetings?limit=20', null, token),
   getGrowth:      (token)                   => request('GET',  '/growth',          null, token),
 
   getUploadUrl:   (token, id, filename)     => request('GET',
@@ -42,4 +44,14 @@ export const api = {
   getContext:        (token)        => request('GET',    '/agents/context',      null, token),
   deleteContext:     (token)        => request('DELETE', '/agents/context',      null, token),
   uploadContextText: (token, text)  => request('POST',   '/agents/context/text', { text }, token),
+
+  uploadContextFile: (token, file) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return fetch('/agents/context/upload', {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body:    fd
+    }).then(r => r.json())
+  },
 }

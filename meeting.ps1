@@ -140,9 +140,17 @@ while ($attempt -lt $MaxPollAttempts) {
         $tokenExpiry = (Get-Date).AddMinutes(470)
     }
 
-    $results = curl.exe -s "$BaseUrl/meetings/$meetingId/results" -H "Authorization: Bearer $token" | ConvertFrom-Json
-    Write-Host "  Attempt $attempt/$MaxPollAttempts - Status: $($results.status)" -ForegroundColor Yellow
+    $rawResults = curl.exe -s "$BaseUrl/meetings/$meetingId/results" `
+        -H "Authorization: Bearer $token"
 
+    try {
+        $results = $rawResults | ConvertFrom-Json
+    } catch {
+        Write-Host "  Attempt $attempt/$MaxPollAttempts - Bad response, retrying..." -ForegroundColor Yellow
+        continue
+    }
+
+    Write-Host "  Attempt $attempt/$MaxPollAttempts - Status: $($results.status)" -ForegroundColor Yellow
     if ($results.status -eq "done") {
         Write-Success "Insights ready!"
 

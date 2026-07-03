@@ -1,5 +1,8 @@
 ﻿services:
   whisper:
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: 717952410994.dkr.ecr.us-east-1.amazonaws.com/osf-suite/whisper-service:latest
     container_name: whisper-service
     restart: unless-stopped
@@ -52,6 +55,9 @@
     restart: unless-stopped
 
   frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     image: 717952410994.dkr.ecr.us-east-1.amazonaws.com/osf-suite/frontend:latest
     container_name: osf-frontend
     expose:
@@ -63,6 +69,9 @@
       - insights
 
   insights:
+    build:
+      context: ./insights
+      dockerfile: Dockerfile
     image: 717952410994.dkr.ecr.us-east-1.amazonaws.com/osf-suite/insights:latest
     container_name: insights-service
     env_file:
@@ -87,6 +96,9 @@
     restart: unless-stopped
 
   worker:
+    build:
+      context: ./insights
+      dockerfile: Dockerfile
     image: 717952410994.dkr.ecr.us-east-1.amazonaws.com/osf-suite/worker:latest
     container_name: osf-worker
     command: python -u worker.py
