@@ -83,6 +83,9 @@ jobs:
             echo "Pruning old unused images..."
             docker image prune -f
 
+            echo "restarting nginx..."
+            docker compose restart nginx
+
       - name: Verify deployment
         uses: appleboy/ssh-action@v1.0.3
         with:
