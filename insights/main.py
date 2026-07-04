@@ -17,6 +17,11 @@ from auth import (
     create_access_token, create_refresh_token, decode_token
 )
 
+# At the top with other imports
+from context_routes import router as context_router
+
+
+
 REDIS_URL       = os.getenv("REDIS_URL", "redis://redis:6379")
 WHISPER_URL     = os.getenv("WHISPER_URL", "http://whisper:8000")
 OLLAMA_URL      = os.getenv("OLLAMA_URL", "http://ollama:11434")
@@ -61,6 +66,9 @@ app = FastAPI(title="OSF Insights Service", version="5.1.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+
+# After app is created (after the limiter setup)
+app.include_router(context_router)
 
 @app.on_event("startup")
 async def startup():

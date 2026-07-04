@@ -27,17 +27,17 @@ export default function Dashboard({ token, onLogout }) {
     fetchMeetings()
   }, [])
 
-  const dealColor = (score) => ({
-    background: score === 'hot'  ? '#2d1a1a' :
-                score === 'warm' ? '#2a2210' : '#1a1a2d',
-    color:      score === 'hot'  ? '#ff6b6b' :
-                score === 'warm' ? '#ffd93d' : '#6c8fff',
-  })
+  const dealColor = (score) =>
+    score === 'hot'  ? '#ff6b6b' :
+    score === 'warm' ? '#ffd93d' : '#6c8fff'
 
-  const truncate = (text, max = 120) => {
-    if (!text) return 'No summary available'
-    return text.length > max ? text.slice(0, max) + '...' : text
-  }
+  const dealBg = (score) =>
+    score === 'hot'  ? '#2d1a1a' :
+    score === 'warm' ? '#2a2210' : '#1a1a2d'
+
+  const dealWidth = (score) =>
+    score === 'hot'  ? '100%' :
+    score === 'warm' ? '60%'  : '25%'
 
   return (
     <div style={s.wrap}>
@@ -101,16 +101,36 @@ export default function Dashboard({ token, onLogout }) {
               style={s.card}
               onClick={() => navigate(`/meeting/${m.meeting_id}`)}
             >
+              {/* Date + badge */}
               <div style={s.cardTop}>
                 <span style={s.cardDate}>{date} · {time}</span>
                 {score && (
-                  <span style={{ ...s.badge, ...dealColor(score) }}>
+                  <span style={{
+                    ...s.badge,
+                    background: dealBg(score),
+                    color: dealColor(score)
+                  }}>
                     {score.toUpperCase()}
                   </span>
                 )}
               </div>
-              <p style={s.summary}>{truncate(m.summary)}</p>
-              <p style={s.cardFooter}>Click to view full report →</p>
+
+              {/* Deal health bar */}
+              <div style={s.dealRow}>
+                <div style={{
+                  ...s.dealBarFill,
+                  width: dealWidth(score),
+                  background: score ? dealColor(score) : '#333',
+                }} />
+                <span style={{
+                  ...s.dealText,
+                  color: score ? dealColor(score) : '#555'
+                }}>
+                  {score ? `Deal is ${score}` : 'No analysis yet'}
+                </span>
+              </div>
+
+              <p style={s.cardFooter}>View full report →</p>
             </div>
           )
         })}
@@ -131,12 +151,14 @@ const s = {
   emptyBox:    { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '12px', padding: '3rem 2rem', textAlign: 'center' },
   emptyTitle:  { color: '#fff', fontSize: '16px', fontWeight: 600, margin: '0 0 8px' },
   emptySub:    { color: '#555', fontSize: '14px', margin: '0 0 1.5rem', lineHeight: 1.6 },
-  grid:        { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' },
-  card:        { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '12px', padding: '1.25rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '10px', transition: 'border-color 0.15s' },
+  grid:        { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '16px' },
+  card:        { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '12px', padding: '1.25rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '12px', transition: 'border-color 0.15s' },
   cardTop:     { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   cardDate:    { color: '#555', fontSize: '12px' },
   badge:       { fontSize: '10px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px', letterSpacing: '0.05em', whiteSpace: 'nowrap' },
-  summary:     { color: '#bbb', fontSize: '14px', margin: 0, lineHeight: 1.6, flex: 1 },
+  dealRow:     { position: 'relative', height: '30px', background: '#111', borderRadius: '6px', overflow: 'hidden', display: 'flex', alignItems: 'center', padding: '0 10px' },
+  dealBarFill: { position: 'absolute', left: 0, top: 0, height: '100%', opacity: 0.18, borderRadius: '6px', transition: 'width 0.4s ease' },
+  dealText:    { fontSize: '13px', fontWeight: 600, position: 'relative', zIndex: 1 },
   cardFooter:  { color: '#444', fontSize: '12px', margin: 0 },
   btnPrimary:  { padding: '9px 16px', borderRadius: '8px', background: '#6c5ce7', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '13px' },
   btnGhost:    { padding: '9px 16px', borderRadius: '8px', background: 'transparent', color: '#aaa', border: '1px solid #2a2a2a', cursor: 'pointer', fontSize: '13px' },
