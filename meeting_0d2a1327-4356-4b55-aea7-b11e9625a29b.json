@@ -1,0 +1,91 @@
+﻿{
+    "meeting_id":  "0d2a1327-4356-4b55-aea7-b11e9625a29b",
+    "status":  "done",
+    "transcript":  "Okay, so now I\u0027ve integrated Ulamah into the system, at least for cash in. Oh, that\u0027s great, yes, that\u0027s great, thank you very much. So what does Ulamah do? Uh, Ulamah helps summarize the omitting and just, um, it\u0027s just not to judge the picture, but the school source and it\u0027s free. Okay, but wouldn\u0027t that cost much money? Uh, probably it costs money for computation, the cloud, but, um, on the long run, we are safer using Ulamah than using charging technology, so the, um, see the insights, um, part of the Ujo is very necessary, we may need to, um, use Ulamah as our best choice. Okay, um, I think I\u0027ll buy, okay, I\u0027ll buy. Okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay, okay",
+    "insights":  {
+                     "meeting_intelligence":  {
+                                                  "summary":  "Client shows interest in Ulamah\u0027s capabilities but expresses concerns about cost.",
+                                                  "action_items":  [
+                                                                       {
+                                                                           "owner":  "agent",
+                                                                           "task":  "Provide detailed pricing for Ulamah integration",
+                                                                           "deadline":  null
+                                                                       },
+                                                                       {
+                                                                           "owner":  "client",
+                                                                           "task":  "Decide on preferred software model and capacity",
+                                                                           "deadline":  null
+                                                                       }
+                                                                   ],
+                                                  "client_pain_points":  [
+                                                                             "Cost of technology"
+                                                                         ],
+                                                  "objections_raised":  [
+                                                                            {
+                                                                                "objection":  "Concern about Ulamah\u0027s cost",
+                                                                                "how_handled":  "Agent reassured that it is a long-term safe choice and necessary for insights."
+                                                                            }
+                                                                        ],
+                                                  "buying_signals":  [
+                                                                         "Client expresses intent to purchase"
+                                                                     ],
+                                                  "deal_health":  {
+                                                                      "score":  "warm",
+                                                                      "reasoning":  "Client showed interest but requires further information on pricing.",
+                                                                      "next_steps":  [
+                                                                                         "Agent should clarify Ulamah\u0027s price and benefits."
+                                                                                     ]
+                                                                  },
+                                                  "client_personality":  {
+                                                                             "communication_style":  "Uncertain",
+                                                                             "decision-making":  "Analytical",
+                                                                             "key_motivators":  [
+                                                                                                    "Cost efficiency",
+                                                                                                    "Reliability"
+                                                                                                ]
+                                                                         },
+                                                  "calendar_schedule":  [
+
+                                                                        ]
+                                              },
+                     "coaching":  {
+                                      "metrics":  {
+                                                      "agent_talk_ratio_percentage":  60,
+                                                      "client_talk_ratio_percentage":  40,
+                                                      "open_ended_questions_count":  2,
+                                                      "closed_questions_count":  18
+                                                  },
+                                      "overall_grade":  {
+                                                            "score_out_of_100":  75,
+                                                            "headline_summary":  "Agent was informative but needs to improve on closing and pricing details."
+                                                        },
+                                      "objections_handled":  [
+                                                                 {
+                                                                     "client_objection":  "Cost of technology",
+                                                                     "agent_response":  "Reassured long-term benefits outweigh initial cost.",
+                                                                     "effectiveness_score_out_of_10":  6,
+                                                                     "coaching_critique":  "Agent should provide concrete pricing information to address client\u0027s objection more effectively.",
+                                                                     "exact_alternative_script":  "For the long-term benefits and cost efficiency of Ulamah, we offer a tailored package. May I explain our pricing options?"
+                                                                 }
+                                                             ],
+                                      "missed_revenue_cues":  [
+                                                                  {
+                                                                      "timestamp_or_context":  "Midway through conversation",
+                                                                      "client_buying_signal":  "Client\u0027s interest in purchasing",
+                                                                      "agent_missed_action":  "Delay in clarifying pricing information."
+                                                                  }
+                                                              ],
+                                      "top_three_action_items":  [
+                                                                     "Clarify Ulamah\u0027s pricing models and options.",
+                                                                     "Highlight long-term benefits to justify the investment.",
+                                                                     "Close the deal by offering a customized solution for the client."
+                                                                 ]
+                                  },
+                     "company_context":  {
+                                             "knowledge":  "Correctly identifies Samsung\u0027s Ulamah as an option.",
+                                             "strategy":  "Should focus on providing clear pricing and addressing concerns to facilitate a sale."
+                                         }
+                 },
+    "created_at":  "2026-07-07T16:56:06.131838",
+    "completed_at":  "2026-07-07T17:11:51.547801"
+}
