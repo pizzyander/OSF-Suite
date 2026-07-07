@@ -49,59 +49,70 @@ export default function Meeting({ token }) {
 
   // ── Local queue processor — uploads one chunk at a time ───────────────────
   const processQueue = async (meetingId) => {
-      if (uploadingRef.current) return
-      if (queueRef.current.length === 0) {
-        if (endedRef.current && chunkIndexRef.current >= totalChunksRef.current) {
-          triggerAnalysis(meetingId)
-        }
-        return
+    if (uploadingRef.current) return
+    if (queueRef.current.length === 0) {
+      if (endedRef.current && chunkIndexRef.current >= totalChunksRef.current) {
+        triggerAnalysis(meetingId)
       }
-
-      uploadingRef.current = true
-      const { blob, index } = queueRef.current.shift()
-
-      try {
-        const filename = `chunk_${String(index).padStart(4, '0')}.webm`
-        const { upload_url, s3_key } = await api.getUploadUrl(token, meetingId, filename)
-
-        const s3Resp = await fetch(upload_url, {
-          method:  'PUT',
-          body:    blob,
-          headers: { 'Content-Type': 'audio/webm' }
-        })
-
-        console.log(`S3 PUT status: ${s3Resp.status} | blob size: ${blob.size} bytes`)
-
-        if (!s3Resp.ok) {
-          throw new Error(`S3 upload failed: ${s3Resp.status} ${s3Resp.statusText}`)
-        }
-
-        await api.uploadChunk(token, meetingId, s3_key)
-        setUploadedCount(c => c + 1)
-        console.log(`Chunk ${index} uploaded and queued (${(blob.size/1024).toFixed(1)} KB)`)
-      } catch (err) {
-        console.error(`Chunk ${index} failed — requeueing:`, err)
-        queueRef.current.unshift({ blob, index })
-        await new Promise(r => setTimeout(r, 2000))
-      } finally {
-        uploadingRef.current = false
-        processQueue(meetingId)
-      }
+      return
     }
+
+    uploadingRef.current = true
+    const { blob, index } = queueRef.current.shift()
+
+    try {
+      const filename = `chunk_${String(index).padStart(4, '0')}.webm`
+      const { upload_url, s3_key } = await api.getUploadUrl(token, meetingId, filename)
+
+      const s3Resp = await fetch(upload_url, {
+        method:  'PUT',
+        body:    blob,
+        headers: { 'Content-Type': 'audio/webm' }
+      })
+
+      console.log(`S3 PUT status: ${s3Resp.status} | blob size: ${blob.size} bytes`)
+
+      if (!s3Resp.ok) {
+        throw new Error(`S3 upload failed: ${s3Resp.status} ${s3Resp.statusText}`)
+      }
+
+      await api.uploadChunk(token, meetingId, s3_key)
+      setUploadedCount(c => c + 1)
+      console.log(`Chunk ${index} uploaded and queued (${(blob.size/1024).toFixed(1)} KB)`)
+    } catch (err) {
+      console.error(`Chunk ${index} failed — requeueing:`, err)
+      queueRef.current.unshift({ blob, index })
+      await new Promise(r => setTimeout(r, 2000))
+    } finally {
+      uploadingRef.current = false
+      processQueue(meetingId)
+    }
+  }
 
   const triggerAnalysis = async (meetingId) => {
-      console.log('All chunks uploaded — triggering analysis')
-      setStatus('Ending meeting — triggering analysis...')
-      try {
-        await api.endMeeting(token, meetingId, totalChunksRef.current)
-        setStatus('Analyzing... (takes a few minutes on CPU)')
-        startPolling(meetingId)
-      } catch (err) {
-        setStatus(`Error ending meeting: ${err.message}`)
-      }
+    console.log('All chunks uploaded — triggering analysis')
+    setStatus('Ending meeting — triggering analysis...')
+    try {
+      await api.endMeeting(token, meetingId, totalChunksRef.current)
+      setStatus('Analyzing... (takes a few minutes on CPU)')
+      startPolling(meetingId)
+    } catch (err) {
+      setStatus(`Error ending meeting: ${err.message}`)
     }
+  }
 
-// ── Start live recording ──────────────────────────────────────────────────
+  // ── Enqueue and track new chunks ──────────────────────────────────────────
+  const enqueueChunk = (blob, meetingId) => {
+    const currentIndex = chunkIndexRef.current
+    chunkIndexRef.current += 1
+
+    setChunkCount(prev => prev + 1)
+    queueRef.current.push({ blob, index: currentIndex })
+
+    processQueue(meetingId)
+  }
+
+  // ── Start live recording ──────────────────────────────────────────────────
   const startLive = async () => {
     setStatus('Requesting microphone...')
     try {
