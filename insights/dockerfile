@@ -7,6 +7,8 @@ COPY db.py .
 COPY auth.py .
 COPY worker.py .
 COPY db_context.py .
+COPY db_vectors.py .
+COPY embeddings.py .
 COPY context_routes.py .
 COPY extraction.py .
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]

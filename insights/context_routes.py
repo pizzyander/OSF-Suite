@@ -18,24 +18,24 @@ import os
 
 from db import get_session, Agent
 from db_context import CompanyContext
+from db import ContextChunk
 from auth import get_current_agent
 from extraction import extract, extract_from_raw_text, ExtractionError
+from embeddings import embed_and_store
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
-REDIS_CONTEXT_TTL = 60 * 60 * 24 * 7  # 7 days — refreshed on every upload
+REDIS_URL         = os.getenv("REDIS_URL", "redis://redis:6379")
+REDIS_CONTEXT_TTL = 60 * 60 * 24 * 7  # 7 days
 
 router = APIRouter(prefix="/agents/context", tags=["Company Context"])
 
 
 async def _write_to_redis(agent_id: str, text: str):
-    """Cache the active context text in Redis for fast worker lookup."""
     r = aioredis.from_url(REDIS_URL)
     await r.set(f"agent_context:{agent_id}", text, ex=REDIS_CONTEXT_TTL)
     await r.aclose()
 
 
 async def _deactivate_previous(agent_id: str, db: AsyncSession):
-    """Mark all existing active rows for this agent as inactive."""
     await db.execute(
         update(CompanyContext)
         .where(CompanyContext.agent_id == agent_id)
@@ -45,7 +45,7 @@ async def _deactivate_previous(agent_id: str, db: AsyncSession):
 
 
 # ---------------------------------------------------------------------------
-# POST /agents/context/upload  — upload a PDF, DOCX, or .txt file
+# POST /agents/context/upload
 # ---------------------------------------------------------------------------
 
 @router.post("/upload")
@@ -55,11 +55,6 @@ async def upload_context_file(
     agent: Agent = Depends(get_current_agent),
     db: AsyncSession = Depends(get_session)
 ):
-    """
-    Upload a PDF, DOCX, or plain text file as the agent's company context.
-    Deactivates the previous context version and stores the new one.
-    Accepts: .pdf  .docx  .txt  .text
-    """
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
@@ -74,33 +69,40 @@ async def upload_context_file(
     await _deactivate_previous(agent.id, db)
 
     context = CompanyContext(
-        id=str(uuid.uuid4()),
-        agent_id=agent.id,
-        version=str(uuid.uuid4()),
-        source_type=source_type,
-        original_filename=filename,
-        extracted_text=extracted_text,
-        is_active=True,
-        created_at=datetime.utcnow()
+        id               = str(uuid.uuid4()),
+        agent_id         = agent.id,
+        version          = str(uuid.uuid4()),
+        source_type      = source_type,
+        original_filename= filename,
+        extracted_text   = extracted_text,
+        is_active        = True,
+        created_at       = datetime.utcnow()
     )
     db.add(context)
     await db.commit()
 
+    # Write to Redis cache
     await _write_to_redis(agent.id, extracted_text)
 
+    # Embed and store vectors in pgvector (non-fatal if it fails)
+    try:
+        await embed_and_store(agent.id, context.id, extracted_text, db)
+    except Exception as e:
+        print(f"Embedding failed for agent {agent.id}: {e}")
+
     return {
-        "context_id": context.id,
-        "version": context.version,
-        "source_type": source_type,
-        "original_filename": filename,
-        "character_count": len(extracted_text),
-        "created_at": context.created_at,
-        "message": "Company context uploaded and active."
+        "context_id":       context.id,
+        "version":          context.version,
+        "source_type":      source_type,
+        "original_filename":filename,
+        "character_count":  len(extracted_text),
+        "created_at":       context.created_at,
+        "message":          "Company context uploaded and active."
     }
 
 
 # ---------------------------------------------------------------------------
-# POST /agents/context/text  — paste raw text directly (no file)
+# POST /agents/context/text
 # ---------------------------------------------------------------------------
 
 @router.post("/text")
@@ -109,10 +111,6 @@ async def upload_context_text(
     agent: Agent = Depends(get_current_agent),
     db: AsyncSession = Depends(get_session)
 ):
-    """
-    Submit raw text as the agent's company context (no file upload needed).
-    Body: { "text": "<your company info / pricing here>" }
-    """
     raw = payload.get("text", "")
     try:
         extracted_text, source_type = extract_from_raw_text(raw)
@@ -122,33 +120,40 @@ async def upload_context_text(
     await _deactivate_previous(agent.id, db)
 
     context = CompanyContext(
-        id=str(uuid.uuid4()),
-        agent_id=agent.id,
-        version=str(uuid.uuid4()),
-        source_type=source_type,
-        original_filename=None,
-        extracted_text=extracted_text,
-        is_active=True,
-        created_at=datetime.utcnow()
+        id               = str(uuid.uuid4()),
+        agent_id         = agent.id,
+        version          = str(uuid.uuid4()),
+        source_type      = source_type,
+        original_filename= None,
+        extracted_text   = extracted_text,
+        is_active        = True,
+        created_at       = datetime.utcnow()
     )
     db.add(context)
     await db.commit()
 
+    # Write to Redis cache
     await _write_to_redis(agent.id, extracted_text)
 
+    # Embed and store vectors in pgvector (non-fatal if it fails)
+    try:
+        await embed_and_store(agent.id, context.id, extracted_text, db)
+    except Exception as e:
+        print(f"Embedding failed for agent {agent.id}: {e}")
+
     return {
-        "context_id": context.id,
-        "version": context.version,
-        "source_type": source_type,
+        "context_id":      context.id,
+        "version":         context.version,
+        "source_type":     source_type,
         "original_filename": None,
         "character_count": len(extracted_text),
-        "created_at": context.created_at,
-        "message": "Company context saved and active."
+        "created_at":      context.created_at,
+        "message":         "Company context saved and active."
     }
 
 
 # ---------------------------------------------------------------------------
-# GET /agents/context  — fetch current active context
+# GET /agents/context
 # ---------------------------------------------------------------------------
 
 @router.get("")
@@ -156,10 +161,6 @@ async def get_active_context(
     agent: Agent = Depends(get_current_agent),
     db: AsyncSession = Depends(get_session)
 ):
-    """
-    Return the agent's current active company context.
-    Returns 404 if none has been uploaded yet.
-    """
     result = await db.execute(
         select(CompanyContext)
         .where(CompanyContext.agent_id == agent.id)
@@ -170,22 +171,23 @@ async def get_active_context(
     if not context:
         raise HTTPException(
             status_code=404,
-            detail="No company context uploaded yet. Use POST /agents/context/upload or /agents/context/text."
+            detail="No company context uploaded yet. "
+                   "Use POST /agents/context/upload or /agents/context/text."
         )
 
     return {
-        "context_id": context.id,
-        "version": context.version,
-        "source_type": context.source_type,
-        "original_filename": context.original_filename,
-        "extracted_text": context.extracted_text,
-        "character_count": len(context.extracted_text),
-        "created_at": context.created_at
+        "context_id":       context.id,
+        "version":          context.version,
+        "source_type":      context.source_type,
+        "original_filename":context.original_filename,
+        "extracted_text":   context.extracted_text,
+        "character_count":  len(context.extracted_text),
+        "created_at":       context.created_at
     }
 
 
 # ---------------------------------------------------------------------------
-# GET /agents/context/history  — full version history (latest first)
+# GET /agents/context/history
 # ---------------------------------------------------------------------------
 
 @router.get("/history")
@@ -193,10 +195,6 @@ async def get_context_history(
     agent: Agent = Depends(get_current_agent),
     db: AsyncSession = Depends(get_session)
 ):
-    """
-    Return all past company context versions for this agent, newest first.
-    Only one will have is_active=True (the current version).
-    """
     result = await db.execute(
         select(CompanyContext)
         .where(CompanyContext.agent_id == agent.id)
@@ -208,13 +206,13 @@ async def get_context_history(
         "total_versions": len(rows),
         "history": [
             {
-                "context_id": c.id,
-                "version": c.version,
-                "source_type": c.source_type,
-                "original_filename": c.original_filename,
-                "character_count": len(c.extracted_text),
-                "is_active": c.is_active,
-                "created_at": c.created_at
+                "context_id":       c.id,
+                "version":          c.version,
+                "source_type":      c.source_type,
+                "original_filename":c.original_filename,
+                "character_count":  len(c.extracted_text),
+                "is_active":        c.is_active,
+                "created_at":       c.created_at
             }
             for c in rows
         ]
@@ -222,7 +220,7 @@ async def get_context_history(
 
 
 # ---------------------------------------------------------------------------
-# DELETE /agents/context  — clear active context
+# DELETE /agents/context
 # ---------------------------------------------------------------------------
 
 @router.delete("")
@@ -230,10 +228,6 @@ async def delete_context(
     agent: Agent = Depends(get_current_agent),
     db: AsyncSession = Depends(get_session)
 ):
-    """
-    Deactivate the current context without uploading a replacement.
-    History is preserved; the AI just won't receive context on future meetings.
-    """
     await _deactivate_previous(agent.id, db)
     await db.commit()
 

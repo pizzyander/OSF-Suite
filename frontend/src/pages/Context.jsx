@@ -62,8 +62,8 @@ export default function Context({ token }) {
       <button style={s.back} onClick={() => navigate('/')}>← Back</button>
       <h2 style={s.title}>Company Context</h2>
       <p style={s.sub}>
-        This is injected into every meeting analysis so the AI evaluates your
-        agents against your own pricing, policies, and scripts.
+        This is necessary so the AI can evaluates your performance
+        against your own pricing, policies, and scripts.
       </p>
 
       {/* Active context */}
@@ -119,7 +119,12 @@ export default function Context({ token }) {
       {/* File tab */}
       {tab === 'file' && (
         <div style={s.fileArea}>
-          <p style={s.fileLabel}>Accepted formats: PDF, DOCX, TXT</p>
+          <p style={s.fileLabel}>
+
+            Upload a file about your company: company info, pricing tiers, scripts, policies...
+            Accepted formats: PDF, DOCX, TXT
+            
+            </p>
           <input
             type="file"
             accept=".pdf,.docx,.txt,.text"

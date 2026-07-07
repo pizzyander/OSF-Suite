@@ -120,7 +120,7 @@
         condition: service_started
     networks:
       - osf-net
-    restart: unless-stopped
+   # restart: unless-stopped
 
   certbot:
     image: certbot/certbot

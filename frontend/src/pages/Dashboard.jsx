@@ -52,7 +52,7 @@ export default function Dashboard({ token, onLogout }) {
             + New Meeting
           </button>
           <button style={s.btnGhost} onClick={() => navigate('/context')}>
-            Company Context
+            Manage Company Context
           </button>
           <button style={s.btnGhost} onClick={fetchMeetings}>
             ↻ Refresh

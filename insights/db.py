@@ -12,16 +12,23 @@ DATABASE_URL = os.getenv(
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    pool_size=10,        # keep this many connections warm and reused
-    max_overflow=10,     # allow up to 10 more under bursty load
-    pool_timeout=30,     # seconds to wait for a free connection before raising
-    pool_pre_ping=True,  # check connection liveness before handing it out
-    pool_recycle=1800,   # recycle connections every 30 min to avoid staleness
+    pool_size=10,
+    max_overflow=10,
+    pool_timeout=30,
+    pool_pre_ping=True,
+    pool_recycle=1800,
 )
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
 
-from db_context import CompanyContext  
+# Register CompanyContext with Base metadata
+from db_context import CompanyContext  # noqa: F401
+
+# Register ContextChunk with Base metadata — avoids circular import
+from db_vectors import init_vectors
+ContextChunk = init_vectors(Base)
+
+
 class Agent(Base):
     __tablename__ = "agents"
 

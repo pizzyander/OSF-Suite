@@ -10,6 +10,9 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import redis.asyncio as aioredis
 
+import logging
+logger = logging.getLogger(__name__)
+
 from db import init_db, get_session, Agent, Meeting
 from auth import (
     get_current_agent, generate_api_key,
@@ -379,33 +382,40 @@ async def upload_chunk(
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
 
-    # Increment chunk counter atomically in Redis and get this chunk's index
     r = aioredis.from_url(REDIS_URL)
     chunk_index = await r.hincrby(f"meeting:{meeting_id}", "chunks", 1)
     await r.aclose()
 
-    # Mirror counter to Postgres
     meeting.chunks = chunk_index
     await db.commit()
 
-    # Enqueue chunk job — worker pulls this, transcribes, appends in order
-    sqs = boto3.client("sqs", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
-    sqs.send_message(
-        QueueUrl=SQS_QUEUE_URL,
-        MessageBody=json.dumps({
-            "type":        "chunk",
-            "meeting_id":  meeting_id,
-            "s3_key":      s3_key,
-            "chunk_index": chunk_index,
-        })
-    )
+    # Send SQS message BEFORE returning — catch and log any failure
+    try:
+        sqs = boto3.client("sqs", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+        sqs_response = sqs.send_message(
+            QueueUrl=SQS_QUEUE_URL,
+            MessageBody=json.dumps({
+                "type":        "chunk",
+                "meeting_id":  meeting_id,
+                "s3_key":      s3_key,
+                "chunk_index": chunk_index,
+            })
+        )
+        logger.info(f"SQS chunk message sent: meeting={meeting_id} "
+                    f"chunk={chunk_index} MessageId={sqs_response.get('MessageId')}")
+    except Exception as e:
+        logger.error(f"SQS send_message FAILED for meeting={meeting_id} "
+                     f"chunk={chunk_index}: {repr(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to queue chunk for processing: {repr(e)}"
+        )
 
     return JSONResponse(status_code=202, content={
         "meeting_id":  meeting_id,
         "chunk_index": chunk_index,
         "status":      "queued"
     })
-
 
 @app.post("/meetings/{meeting_id}/end")
 @limiter.limit("100/minute")
