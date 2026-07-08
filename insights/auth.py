@@ -13,7 +13,7 @@ from db import get_session, Agent
 
 JWT_SECRET     = os.getenv("JWT_SECRET", "change-this-secret")
 JWT_ALGORITHM  = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_EXPIRE  = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+ACCESS_EXPIRE  = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
 REFRESH_EXPIRE = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)

@@ -6,7 +6,7 @@ import boto3
 import redis.asyncio as aioredis
 from datetime import datetime
 from sqlalchemy import select
-
+from botocore.config import Config
 from db import init_db, AsyncSessionLocal, Meeting
 from db_context import CompanyContext
 from embeddings import similarity_search
@@ -280,7 +280,11 @@ async def process_chunk(message: dict, sqs_client):
 
     print(f"Processing chunk {chunk_index} for meeting {meeting_id}")
 
-    s3 = await asyncio.to_thread(boto3.client, "s3", region_name=AWS_REGION)
+    s3 = boto3.client(
+        "s3",
+        region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
+        config=Config(signature_version="s3v4")
+    )
     s3_obj = await asyncio.to_thread(s3.get_object, Bucket=S3_BUCKET, Key=s3_key)
     audio_bytes = s3_obj["Body"].read()
     filename = s3_key.split("/")[-1]

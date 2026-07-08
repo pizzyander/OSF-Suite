@@ -19,7 +19,7 @@ export default function Signup({ onLogin }) {
     setError('')
     try {
       const data = await api.register(name, email, password)
-      onLogin(data.access_token)
+      onLogin(data)
     } catch (err) {
       setError(err.message)
     } finally {

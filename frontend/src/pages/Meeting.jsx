@@ -13,6 +13,8 @@ export default function Meeting({ token }) {
   const [status, setStatus]   = useState('')
   const [chunkCount, setChunkCount]       = useState(0)
   const [uploadedCount, setUploadedCount] = useState(0)
+  const [file, setFile]           = useState(null)
+  const [uploading, setUploading] = useState(false)
 
   // System Refs
   const meetingIdRef    = useRef(null)
@@ -75,11 +77,8 @@ export default function Meeting({ token }) {
 
     try {
       const filename = `chunk_${String(index).padStart(4, '0')}.webm`
-      
-      // Asynchronously request S3 Presigned URL
       const { upload_url, s3_key } = await api.getUploadUrl(token, currentMeetingId, filename)
 
-      // Upload raw compressed blob directly to Cloud (S3)
       const s3Resp = await fetch(upload_url, {
         method:  'PUT',
         body:    blob,
@@ -88,17 +87,23 @@ export default function Meeting({ token }) {
 
       if (!s3Resp.ok) throw new Error(`S3 upload failed: ${s3Resp.status}`)
 
-      // Notify backend chunk registration is complete
       await api.uploadChunk(token, currentMeetingId, s3_key)
-      
       setUploadedCount(c => c + 1)
-      
       uploadingRef.current = false
-      processQueue() // Pick up next chunk
+      processQueue()
     } catch (err) {
+      const isAuthError = err.message?.includes('401') || err.message?.includes('Not authenticated')
+
+      if (isAuthError) {
+        // Don't retry forever on a dead token — stop and surface it
+        console.error(`Chunk ${index} failed: auth expired`, err)
+        setStatus('Session expired — please log in again to continue uploading.')
+        uploadingRef.current = false
+        return // stop the queue, don't requeue
+      }
+
       console.error(`Chunk ${index} failed, retrying...`, err)
-      queueRef.current.unshift(currentItem) // Put back at front
-      
+      queueRef.current.unshift(currentItem)
       const t = setTimeout(() => {
         uploadingRef.current = false
         processQueue()
@@ -251,7 +256,33 @@ export default function Meeting({ token }) {
       setStatus(`Analysis execution failed: ${err.message}`)
     }
   }
+  const runUpload = async () => {
+    if (!file) return
+    setUploading(true)
+    setStatus('Uploading file...')
+    try {
+      const { meeting_id } = await api.startMeeting(token)
+      meetingIdRef.current = meeting_id
 
+      const filename = file.name
+      const { upload_url, s3_key } = await api.getUploadUrl(token, meeting_id, filename)
+
+      const s3Resp = await fetch(upload_url, {
+        method: 'PUT',
+        body: file,
+        headers: { 'Content-Type': file.type || 'audio/mpeg' }
+      })
+      if (!s3Resp.ok) throw new Error(`S3 upload failed: ${s3Resp.status}`)
+
+      setStatus('Transcribing and analyzing...')
+      await api.uploadComplete(token, meeting_id, s3_key)
+      startPolling(meeting_id)
+    } catch (err) {
+      setStatus(`Upload failed: ${err.message}`)
+    } finally {
+      setUploading(false)
+    }
+  }
   const startPolling = (meeting_id) => {
     pollRef.current = setInterval(async () => {
       try {

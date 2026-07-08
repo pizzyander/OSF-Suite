@@ -9,8 +9,10 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import redis.asyncio as aioredis
-
+from botocore.config import Config
 import logging
+
+
 logger = logging.getLogger(__name__)
 
 from db import init_db, get_session, Agent, Meeting
@@ -240,13 +242,27 @@ async def get_upload_url(
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
 
+    if not S3_BUCKET:
+        logger.error("S3_BUCKET env var is not set — cannot generate upload URL")
+        raise HTTPException(status_code=500, detail="Server misconfiguration: storage not set up")
+
     s3_key = f"meetings/{meeting_id}/{filename}"
-    s3 = boto3.client("s3", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
-    presigned_url = s3.generate_presigned_url(
-        "put_object",
-        Params={"Bucket": S3_BUCKET, "Key": s3_key},
-        ExpiresIn=3600
-    )
+
+    try:
+        s3 = boto3.client(
+            "s3",
+            region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
+            config=Config(signature_version="s3v4")   # ← add this here, not just in upload_complete
+        )
+        presigned_url = s3.generate_presigned_url(
+            "put_object",
+            Params={"Bucket": S3_BUCKET, "Key": s3_key},
+            ExpiresIn=3600
+        )
+    except Exception as e:
+        logger.error(f"Failed to generate presigned URL for meeting={meeting_id} filename={filename}: {repr(e)}")
+        raise HTTPException(status_code=502, detail="Could not generate upload URL, please try again")
+
     return {"upload_url": presigned_url, "s3_key": s3_key}
 
 
@@ -289,7 +305,13 @@ async def upload_complete(
         raise HTTPException(status_code=400, detail="chunk_seconds must be positive")
 
     # --- Pull the uploaded file from S3 ---------------------------------------
-    s3 = boto3.client("s3", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+
+    s3 = boto3.client(
+        "s3",
+        region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
+        config=Config(signature_version="s3v4")
+    )
+
     try:
         s3_obj = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
         audio_bytes = s3_obj["Body"].read()
