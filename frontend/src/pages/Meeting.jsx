@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 
 const CHUNK_DURATION_MS = 30000
+const HANDOFF_BUFFER_MS = 500 // Start next recorder slightly early to prevent gaps
 
 export default function Meeting({ token }) {
   const [params]              = useSearchParams()
@@ -12,20 +13,22 @@ export default function Meeting({ token }) {
   const [status, setStatus]   = useState('')
   const [chunkCount, setChunkCount]       = useState(0)
   const [uploadedCount, setUploadedCount] = useState(0)
-  const [file, setFile]       = useState(null)
-  const [uploading, setUploading] = useState(false)
 
+  // System Refs
   const meetingIdRef    = useRef(null)
-  const mediaRecRef     = useRef(null)
   const streamRef       = useRef(null)
   const pollRef         = useRef(null)
-  const intervalRef     = useRef(null)
-  const chunkIndexRef   = useRef(0)
+  const timeoutsRef     = useRef([]) // Tracks active window timeouts for easy clearing
 
-  // Local queue state
+  // Chained Audio Recorder Refs
+  const currentRecorderRef = useRef(null)
+  const nextRecorderRef    = useRef(null)
+
+  // Background Queue Refs
   const queueRef        = useRef([])   // { blob, index }
   const uploadingRef    = useRef(false)
   const endedRef        = useRef(false)
+  const chunkIndexRef   = useRef(0)
   const totalChunksRef  = useRef(0)
 
   const navigate = useNavigate()
@@ -36,7 +39,7 @@ export default function Meeting({ token }) {
 
   useEffect(() => () => {
     clearInterval(pollRef.current)
-    clearInterval(intervalRef.current)
+    clearAllTimeouts()
     stopStream()
   }, [])
 
@@ -47,80 +50,142 @@ export default function Meeting({ token }) {
     }
   }
 
-  // ── Local queue processor — uploads one chunk at a time ───────────────────
-  const processQueue = async (meetingId) => {
+  const clearAllTimeouts = () => {
+    timeoutsRef.current.forEach(t => clearTimeout(t))
+    timeoutsRef.current = []
+  }
+
+  // ── Background Queue Processor ──────────────────────────────────────────
+  const processQueue = async () => {
     if (uploadingRef.current) return
+    
+    const currentMeetingId = meetingIdRef.current
+    if (!currentMeetingId) return
+
     if (queueRef.current.length === 0) {
       if (endedRef.current && chunkIndexRef.current >= totalChunksRef.current) {
-        triggerAnalysis(meetingId)
+        triggerAnalysis(currentMeetingId)
       }
       return
     }
 
     uploadingRef.current = true
-    const { blob, index } = queueRef.current.shift()
+    const currentItem = queueRef.current.shift()
+    const { blob, index } = currentItem
 
     try {
       const filename = `chunk_${String(index).padStart(4, '0')}.webm`
-      const { upload_url, s3_key } = await api.getUploadUrl(token, meetingId, filename)
+      
+      // Asynchronously request S3 Presigned URL
+      const { upload_url, s3_key } = await api.getUploadUrl(token, currentMeetingId, filename)
 
+      // Upload raw compressed blob directly to Cloud (S3)
       const s3Resp = await fetch(upload_url, {
         method:  'PUT',
         body:    blob,
         headers: { 'Content-Type': 'audio/webm' }
       })
 
-      console.log(`S3 PUT status: ${s3Resp.status} | blob size: ${blob.size} bytes`)
+      if (!s3Resp.ok) throw new Error(`S3 upload failed: ${s3Resp.status}`)
 
-      if (!s3Resp.ok) {
-        throw new Error(`S3 upload failed: ${s3Resp.status} ${s3Resp.statusText}`)
-      }
-
-      await api.uploadChunk(token, meetingId, s3_key)
+      // Notify backend chunk registration is complete
+      await api.uploadChunk(token, currentMeetingId, s3_key)
+      
       setUploadedCount(c => c + 1)
-      console.log(`Chunk ${index} uploaded and queued (${(blob.size/1024).toFixed(1)} KB)`)
-    } catch (err) {
-      console.error(`Chunk ${index} failed — requeueing:`, err)
-      queueRef.current.unshift({ blob, index })
-      await new Promise(r => setTimeout(r, 2000))
-    } finally {
+      
       uploadingRef.current = false
-      processQueue(meetingId)
-    }
-  }
-
-  const triggerAnalysis = async (meetingId) => {
-    console.log('All chunks uploaded — triggering analysis')
-    setStatus('Ending meeting — triggering analysis...')
-    try {
-      await api.endMeeting(token, meetingId, totalChunksRef.current)
-      setStatus('Analyzing... (takes a few minutes on CPU)')
-      startPolling(meetingId)
+      processQueue() // Pick up next chunk
     } catch (err) {
-      setStatus(`Error ending meeting: ${err.message}`)
+      console.error(`Chunk ${index} failed, retrying...`, err)
+      queueRef.current.unshift(currentItem) // Put back at front
+      
+      const t = setTimeout(() => {
+        uploadingRef.current = false
+        processQueue()
+      }, 2000)
+      timeoutsRef.current.push(t)
     }
   }
 
-  // ── Enqueue and track new chunks ──────────────────────────────────────────
-  const enqueueChunk = (blob, meetingId) => {
+  const enqueueChunk = (blob) => {
     const currentIndex = chunkIndexRef.current
     chunkIndexRef.current += 1
 
     setChunkCount(prev => prev + 1)
     queueRef.current.push({ blob, index: currentIndex })
-
-    processQueue(meetingId)
+    processQueue()
   }
 
-  // ── Start live recording ──────────────────────────────────────────────────
+  // ── Seamless Chained Recording Loop ──────────────────────────────────────
+  const startRecordingChain = (stream, mimeType) => {
+    
+    const recordSegment = (isFirstRun = false) => {
+      if (endedRef.current || !streamRef.current) return
+
+      // 1. If it's the first run, instantiate and start the primary recorder immediately
+      if (isFirstRun) {
+        currentRecorderRef.current = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 })
+        const chunks = []
+        currentRecorderRef.current.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data) }
+        currentRecorderRef.current.onstop = () => {
+          const blob = new Blob(chunks, { type: mimeType })
+          if (blob.size > 0) enqueueChunk(blob)
+        }
+        currentRecorderRef.current.start()
+      }
+
+      // 2. Schedule the next sequential recorder to open right before the current window expires
+      const preHandoffTimeout = setTimeout(() => {
+        if (endedRef.current) return
+
+        nextRecorderRef.current = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 })
+        const nextChunks = []
+        nextRecorderRef.current.ondataavailable = e => { if (e.data.size > 0) nextChunks.push(e.data) }
+        nextRecorderRef.current.onstop = () => {
+          const blob = new Blob(nextChunks, { type: mimeType })
+          if (blob.size > 0) enqueueChunk(blob)
+        }
+        
+        // Spin up the secondary engine
+        nextRecorderRef.current.start()
+
+      }, CHUNK_DURATION_MS - HANDOFF_BUFFER_MS)
+      timeoutsRef.current.push(preHandoffTimeout)
+
+      // 3. At the exact 30s mark, terminate the primary engine and swap roles
+      const swapTimeout = setTimeout(() => {
+        if (endedRef.current) return
+
+        // Stop the active container (fires its onstop configuration natively)
+        if (currentRecorderRef.current && currentRecorderRef.current.state === 'recording') {
+          currentRecorderRef.current.stop()
+        }
+
+        // Shift next container to current slot
+        currentRecorderRef.current = nextRecorderRef.current
+        nextRecorderRef.current = null
+
+        // Recursively trigger next loop sequence
+        recordSegment(false)
+      }, CHUNK_DURATION_MS)
+      timeoutsRef.current.push(swapTimeout)
+    }
+
+    // Begin loop entry
+    recordSegment(true)
+  }
+
+  // ── Live Initialization ──────────────────────────────────────────────────
   const startLive = async () => {
-    setStatus('Requesting microphone...')
+    setStatus('Requesting microphone access...')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
 
-      setStatus('Starting meeting...')
+      setStatus('Provisioning new meeting on server...')
       const { meeting_id } = await api.startMeeting(token)
+      
+      // Initialize operational variables
       meetingIdRef.current  = meeting_id
       chunkIndexRef.current = 0
       queueRef.current      = []
@@ -129,105 +194,64 @@ export default function Meeting({ token }) {
       totalChunksRef.current = 0
 
       setMode('live')
-      setStatus('Recording...')
+      setStatus('Recording meeting...')
       setChunkCount(0)
       setUploadedCount(0)
 
-      // Check if browser supports opus
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : 'audio/webm'
 
-      const startChunk = () => {
-        const rec   = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 })
-        const blobs = []
-        mediaRecRef.current = rec
-
-        rec.ondataavailable = e => { if (e.data.size > 0) blobs.push(e.data) }
-        rec.onstop = () => {
-          const blob = new Blob(blobs, { type: mimeType })
-          if (blob.size > 0) enqueueChunk(blob, meeting_id)
-        }
-
-        rec.start()
-        setTimeout(() => {
-          if (rec.state === 'recording') rec.stop()
-        }, CHUNK_DURATION_MS)
-      }
-
-      startChunk()
-      intervalRef.current = setInterval(() => {
-        if (streamRef.current) startChunk()
-        else clearInterval(intervalRef.current)
-      }, CHUNK_DURATION_MS)
-
+      startRecordingChain(stream, mimeType)
     } catch (err) {
-      setStatus(`Error: ${err.message}`)
+      setStatus(`Initialization error: ${err.message}`)
       setMode('idle')
+      stopStream()
     }
   }
 
-  // ── Stop live recording ───────────────────────────────────────────────────
+  // ── Stop Action ───────────────────────────────────────────────────────────
   const stopLive = () => {
-    clearInterval(intervalRef.current)
+    endedRef.current = true
+    clearAllTimeouts()
 
-    // Stop current recorder — onstop will enqueue the last partial chunk
-    if (mediaRecRef.current?.state === 'recording') {
-      mediaRecRef.current.stop()
+    setStatus('Flushing final audio segment...')
+
+    // Shut down whatever recorder is actively listening
+    if (currentRecorderRef.current && currentRecorderRef.current.state === 'recording') {
+      currentRecorderRef.current.stop()
+    }
+    if (nextRecorderRef.current && nextRecorderRef.current.state === 'recording') {
+      nextRecorderRef.current.stop()
     }
 
     stopStream()
-    setMode('upload') // show polling UI
-    setStatus('Flushing last chunk...')
+    setMode('upload')
 
-    // Total chunks = whatever chunkIndexRef becomes after onstop fires
-    // We poll until the queue drains, then triggerAnalysis fires automatically
-    endedRef.current = true
-
-    // Give onstop 500ms to fire and enqueue the last chunk
+    // Allow execution window for final onstop data collection loops to settle
     setTimeout(() => {
       totalChunksRef.current = chunkIndexRef.current
-      console.log(`Meeting ended — total chunks: ${totalChunksRef.current}`)
-      setStatus(`Uploading remaining chunks (${queueRef.current.length} left)...`)
-
-      // If queue already empty (all chunks uploaded before stop), trigger now
+      console.log(`Meeting concluded. Evaluating queue processing status. Total chunks: ${totalChunksRef.current}`)
+      
       if (queueRef.current.length === 0 && !uploadingRef.current) {
         triggerAnalysis(meetingIdRef.current)
+      } else {
+        setStatus(`Uploading final audio buffers (${queueRef.current.length} items remaining)...`)
       }
-    }, 500)
+    }, 600)
   }
 
-  // ── Manual file upload ────────────────────────────────────────────────────
-  const runUpload = async () => {
-    if (!file) return
-    setUploading(true)
-    setStatus('Starting meeting...')
+  const triggerAnalysis = async (meetingId) => {
+    setStatus('Finalizing file links — running analysis engine...')
     try {
-      const { meeting_id } = await api.startMeeting(token)
-      meetingIdRef.current  = meeting_id
-
-      setStatus('Getting upload URL...')
-      const { upload_url, s3_key } = await api.getUploadUrl(token, meeting_id, file.name)
-
-      setStatus('Uploading to S3...')
-      const s3Resp = await fetch(upload_url, { method: 'PUT', body: file })
-      if (!s3Resp.ok) throw new Error(`S3 upload failed: ${s3Resp.status}`)
-
-      setStatus('Sending for transcription...')
-      await api.uploadChunk(token, meeting_id, s3_key)
-
-      setStatus('Ending meeting...')
-      await api.endMeeting(token, meeting_id, 1)
-
-      setStatus('Analyzing... (takes a few minutes on CPU)')
-      startPolling(meeting_id)
+      await api.endMeeting(token, meetingId, totalChunksRef.current)
+      setStatus('Analyzing processing logs... (May take a moment)')
+      startPolling(meetingId)
     } catch (err) {
-      setStatus(`Error: ${err.message}`)
-      setUploading(false)
+      setStatus(`Analysis execution failed: ${err.message}`)
     }
   }
 
-  // ── Poll for results ──────────────────────────────────────────────────────
   const startPolling = (meeting_id) => {
     pollRef.current = setInterval(async () => {
       try {
@@ -237,14 +261,12 @@ export default function Meeting({ token }) {
           setMeeting(result)
           setMode('done')
           setStatus('')
-          setUploading(false)
         } else if (result.status === 'failed') {
           clearInterval(pollRef.current)
-          setStatus('Analysis failed. Check worker logs.')
-          setUploading(false)
+          setStatus('Backend workers encountered a tracking error.')
         }
       } catch (_) {}
-    }, 15000)
+    }, 10000)
   }
 
   // ── Results view ──────────────────────────────────────────────────────────
