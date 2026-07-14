@@ -59,7 +59,8 @@ async def authenticate_ws(token: str, meeting_id: str) -> str | None:
     """
     try:
         agent_id = decode_token(token)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Live auth failed for meeting={meeting_id}: invalid/expired token ({e})")
         return None
 
     async with AsyncSessionLocal() as db:
@@ -70,7 +71,14 @@ async def authenticate_ws(token: str, meeting_id: str) -> str | None:
         )
         meeting = result.scalar_one_or_none()
 
-    return agent_id if meeting else None
+    if not meeting:
+        logger.warning(
+            f"Live auth failed for meeting={meeting_id}: no meeting found for "
+            f"agent={agent_id} (wrong owner, or meeting_id doesn't exist)"
+        )
+        return None
+
+    return agent_id
 
 
 async def finalize_meeting(meeting_id: str, final_segments: list[dict]):
