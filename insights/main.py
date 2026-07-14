@@ -24,7 +24,7 @@ from auth import (
 
 # At the top with other imports
 from context_routes import router as context_router
-
+from live_routes import router as live_router
 
 
 REDIS_URL       = os.getenv("REDIS_URL", "redis://redis:6379")
@@ -74,6 +74,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # After app is created (after the limiter setup)
 app.include_router(context_router)
+app.include_router(live_router)
 
 @app.on_event("startup")
 async def startup():
