@@ -10,6 +10,7 @@ from botocore.config import Config
 from db import init_db, AsyncSessionLocal, Meeting
 from db_context import CompanyContext
 from embeddings import similarity_search
+from reconciler import reconciler_loop
 
 REDIS_URL       = os.getenv("REDIS_URL",       "redis://redis:6379")
 OLLAMA_URL      = os.getenv("OLLAMA_URL",      "http://ollama:11434")
@@ -274,6 +275,19 @@ def merge_transcript_diarization(transcript_segments, diarization_segments):
 
 
 async def process_chunk(message: dict, sqs_client):
+    """
+    Handles a single audio chunk: pulls it from S3, transcribes + diarizes it,
+    stores the result in Redis, and — ONLY once every chunk for the meeting has
+    arrived AND the meeting has been marked ended — assembles the full transcript,
+    saves it to Postgres, and enqueues a separate "analyze" SQS message.
+
+    NOTE: this function must NOT run the Pass 1 / Pass 2 LLM analysis itself.
+    That logic lives exclusively in process_message_analysis(), which is
+    triggered by the "analyze" message this function sends. Duplicating that
+    logic here previously caused every non-final chunk to raise
+    "Transcript is empty" (since meeting.transcript is only populated once
+    the meeting has ended), which left chunk jobs stuck retrying forever.
+    """
     meeting_id = message["meeting_id"]
     s3_key = message["s3_key"]
     chunk_index = int(message["chunk_index"])
@@ -343,12 +357,14 @@ async def process_chunk(message: dict, sqs_client):
                     await db.commit()
 
             print(f"All {total_chunks} chunks assembled ({len(full_transcript)} chars) — queuing analysis")
-            
+
             await asyncio.to_thread(
                 sqs_client.send_message,
                 QueueUrl=SQS_QUEUE_URL,
                 MessageBody=json.dumps({"type": "analyze", "meeting_id": meeting_id})
             )
+    # process_chunk ends here. Do NOT add transcript-fetch/analysis logic below —
+    # that belongs exclusively in process_message_analysis().
 
 
 async def process_message_analysis(meeting_id: str):
@@ -400,9 +416,14 @@ async def run():
     await init_db()
     sqs = await asyncio.to_thread(boto3.client, "sqs", region_name=AWS_REGION)
     print("Worker started - polling SQS for jobs...")
-    print(f"PID: {os.getpid()}")  
-    print(f"SQS_QUEUE_URL: {SQS_QUEUE_URL}")  
-    
+    print(f"PID: {os.getpid()}")
+    print(f"SQS_QUEUE_URL: {SQS_QUEUE_URL}")
+
+    # Runs independently of the SQS loop below, on its own timer — sweeps
+    # for live-transcription sessions abandoned by a crashed process and
+    # finalizes whatever transcript was captured before it was lost.
+    asyncio.create_task(reconciler_loop(REDIS_URL))
+
     while True:
         try:
             # Shift blocking I/O to a background thread executor & pass AttributeNames for logic survival
@@ -413,7 +434,7 @@ async def run():
                 WaitTimeSeconds=20,
                 AttributeNames=['ApproximateReceiveCount']
             )
-            
+
             messages = response.get("Messages", [])
             if not messages:
                 continue
@@ -450,24 +471,26 @@ async def run():
                     print(f"EXCEPTION in {msg_type} job {meeting_id}:")
                     print(traceback.format_exc())
 
-                    if msg_type == "analyze":
-                        receive_count = int(message.get("Attributes", {}).get("ApproximateReceiveCount", "1"))
-                        max_attempts = 3
+                    # Unified retry-cap logic: applies to BOTH "chunk" and "analyze"
+                    # jobs, so a genuinely failing chunk (e.g. Whisper down, S3
+                    # blip) can't loop forever the way it silently did before.
+                    receive_count = int(message.get("Attributes", {}).get("ApproximateReceiveCount", "1"))
+                    max_attempts = 3
 
-                        if receive_count >= max_attempts:
-                            try:
-                                async with AsyncSessionLocal() as db:
-                                    db_result = await db.execute(select(Meeting).where(Meeting.id == meeting_id))
-                                    m = db_result.scalar_one_or_none()
-                                    if m:
-                                        m.status = "failed"
-                                        await db.commit()
-                            except Exception:
-                                pass
-                            await asyncio.to_thread(sqs.delete_message, QueueUrl=SQS_QUEUE_URL, ReceiptHandle=receipt)
-                            print(f"Job {meeting_id} failed permanently after {receive_count} attempts")
-                        else:
-                            print(f"Job {meeting_id} failed (attempt {receive_count}/{max_attempts}) — leaving in queue for retry")
+                    if receive_count >= max_attempts:
+                        try:
+                            async with AsyncSessionLocal() as db:
+                                db_result = await db.execute(select(Meeting).where(Meeting.id == meeting_id))
+                                m = db_result.scalar_one_or_none()
+                                if m:
+                                    m.status = "failed"
+                                    await db.commit()
+                        except Exception:
+                            pass
+                        await asyncio.to_thread(sqs.delete_message, QueueUrl=SQS_QUEUE_URL, ReceiptHandle=receipt)
+                        print(f"Job {meeting_id} ({msg_type}) failed permanently after {receive_count} attempts")
+                    else:
+                        print(f"Job {meeting_id} ({msg_type}) failed (attempt {receive_count}/{max_attempts}) — leaving in queue for retry")
         except Exception as e:
             print(f"Worker error: {e}, retrying in 5s...")
             await asyncio.sleep(5)

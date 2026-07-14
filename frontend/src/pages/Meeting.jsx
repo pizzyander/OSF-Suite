@@ -1,39 +1,41 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
-
-const CHUNK_DURATION_MS = 30000
-const HANDOFF_BUFFER_MS = 500 // Start next recorder slightly early to prevent gaps
+import { useLiveTranscription } from '../hooks/useLiveTranscription' // adjust path to wherever you saved the hook
 
 export default function Meeting({ token }) {
   const [params]              = useSearchParams()
   const existingId            = params.get('id')
   const [meeting, setMeeting] = useState(null)
-  const [mode, setMode]       = useState('idle')
+  const [mode, setMode]       = useState('idle') // idle | live | upload | done
   const [status, setStatus]   = useState('')
-  const [chunkCount, setChunkCount]       = useState(0)
-  const [uploadedCount, setUploadedCount] = useState(0)
+
+  // Live-recording specific state
+  const [meetingId, setMeetingId]   = useState(null)   // must be React state (not just a ref) so
+                                                          // useLiveTranscription re-renders with the
+                                                          // correct id once the meeting is created
+  const [finalizing, setFinalizing] = useState(false)   // true once recording stopped, waiting on analysis
+
+  // Manual file-upload specific state
   const [file, setFile]           = useState(null)
   const [uploading, setUploading] = useState(false)
 
-  // System Refs
-  const meetingIdRef    = useRef(null)
-  const streamRef       = useRef(null)
-  const pollRef         = useRef(null)
-  const timeoutsRef     = useRef([]) // Tracks active window timeouts for easy clearing
-
-  // Chained Audio Recorder Refs
-  const currentRecorderRef = useRef(null)
-  const nextRecorderRef    = useRef(null)
-
-  // Background Queue Refs
-  const queueRef        = useRef([])   // { blob, index }
-  const uploadingRef    = useRef(false)
-  const endedRef        = useRef(false)
-  const chunkIndexRef   = useRef(0)
-  const totalChunksRef  = useRef(0)
+  const meetingIdRef = useRef(null) // convenience ref for use inside callbacks/polling without stale closures
+  const pollRef       = useRef(null)
+  const hasStartedLiveRef = useRef(false) // guards against double-starting the mic in React StrictMode dev
 
   const navigate = useNavigate()
+
+  // The hook re-renders its `start`/`stop` functions whenever `meetingId`
+  // changes — so we can't call start() in the same tick we set meetingId,
+  // we have to wait for the re-render (handled by the effect below).
+  const {
+    start: startLiveAudio,
+    stop: stopLiveAudio,
+    status: liveStatus,
+    segments,
+    error: liveError,
+  } = useLiveTranscription({ token, meetingId })
 
   useEffect(() => {
     if (existingId) api.getResults(token, existingId).then(setMeeting)
@@ -41,221 +43,84 @@ export default function Meeting({ token }) {
 
   useEffect(() => () => {
     clearInterval(pollRef.current)
-    clearAllTimeouts()
-    stopStream()
+    stopLiveAudio()
   }, [])
 
-  const stopStream = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop())
-      streamRef.current = null
+  // Once the meeting has been created server-side (meetingId is set) and
+  // we're in live mode, actually open the mic + WebSocket. This has to be
+  // an effect (not called directly in startLive) because startLiveAudio's
+  // closure only picks up the fresh meetingId after React re-renders.
+  useEffect(() => {
+    if (mode === 'live' && meetingId && !hasStartedLiveRef.current) {
+      hasStartedLiveRef.current = true
+      startLiveAudio()
     }
-  }
+  }, [mode, meetingId])
 
-  const clearAllTimeouts = () => {
-    timeoutsRef.current.forEach(t => clearTimeout(t))
-    timeoutsRef.current = []
-  }
-
-  // ── Background Queue Processor ──────────────────────────────────────────
-  const processQueue = async () => {
-    if (uploadingRef.current) return
-    
-    const currentMeetingId = meetingIdRef.current
-    if (!currentMeetingId) return
-
-    if (queueRef.current.length === 0) {
-      if (endedRef.current && chunkIndexRef.current >= totalChunksRef.current) {
-        triggerAnalysis(currentMeetingId)
-      }
-      return
+  // Reflect the hook's connection status into our own status message.
+  // SESSION_EXPIRED is a specific signal from the backend (a rejected
+  // WebSocket handshake, close code 4401) meaning the access token died
+  // sometime between page load and clicking "Live recording" — distinct
+  // from a generic network/connection failure, so the user knows exactly
+  // what to do about it instead of just "something went wrong."
+  useEffect(() => {
+    if (liveStatus === 'connecting') setStatus('Connecting to live transcription...')
+    if (liveStatus === 'live')       setStatus('Recording live...')
+    if (liveStatus === 'error') {
+      setStatus(
+        liveError === 'SESSION_EXPIRED'
+          ? 'Your session expired — please log out and log back in to start a live recording.'
+          : `Live transcription error: ${liveError}`
+      )
     }
+  }, [liveStatus, liveError])
 
-    uploadingRef.current = true
-    const currentItem = queueRef.current.shift()
-    const { blob, index } = currentItem
-
-    try {
-      const filename = `chunk_${String(index).padStart(4, '0')}.webm`
-      const { upload_url, s3_key } = await api.getUploadUrl(token, currentMeetingId, filename)
-
-      const s3Resp = await fetch(upload_url, {
-        method:  'PUT',
-        body:    blob,
-        headers: { 'Content-Type': 'audio/webm' }
-      })
-
-      if (!s3Resp.ok) throw new Error(`S3 upload failed: ${s3Resp.status}`)
-
-      await api.uploadChunk(token, currentMeetingId, s3_key)
-      setUploadedCount(c => c + 1)
-      uploadingRef.current = false
-      processQueue()
-    } catch (err) {
-      const isAuthError = err.message?.includes('401') || err.message?.includes('Not authenticated')
-
-      if (isAuthError) {
-        // Don't retry forever on a dead token — stop and surface it
-        console.error(`Chunk ${index} failed: auth expired`, err)
-        setStatus('Session expired — please log in again to continue uploading.')
-        uploadingRef.current = false
-        return // stop the queue, don't requeue
-      }
-
-      console.error(`Chunk ${index} failed, retrying...`, err)
-      queueRef.current.unshift(currentItem)
-      const t = setTimeout(() => {
-        uploadingRef.current = false
-        processQueue()
-      }, 2000)
-      timeoutsRef.current.push(t)
-    }
-  }
-
-  const enqueueChunk = (blob) => {
-    const currentIndex = chunkIndexRef.current
-    chunkIndexRef.current += 1
-
-    setChunkCount(prev => prev + 1)
-    queueRef.current.push({ blob, index: currentIndex })
-    processQueue()
-  }
-
-  // ── Seamless Chained Recording Loop ──────────────────────────────────────
-  const startRecordingChain = (stream, mimeType) => {
-    
-    const recordSegment = (isFirstRun = false) => {
-      if (endedRef.current || !streamRef.current) return
-
-      // 1. If it's the first run, instantiate and start the primary recorder immediately
-      if (isFirstRun) {
-        currentRecorderRef.current = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 })
-        const chunks = []
-        currentRecorderRef.current.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data) }
-        currentRecorderRef.current.onstop = () => {
-          const blob = new Blob(chunks, { type: mimeType })
-          if (blob.size > 0) enqueueChunk(blob)
-        }
-        currentRecorderRef.current.start()
-      }
-
-      // 2. Schedule the next sequential recorder to open right before the current window expires
-      const preHandoffTimeout = setTimeout(() => {
-        if (endedRef.current) return
-
-        nextRecorderRef.current = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 })
-        const nextChunks = []
-        nextRecorderRef.current.ondataavailable = e => { if (e.data.size > 0) nextChunks.push(e.data) }
-        nextRecorderRef.current.onstop = () => {
-          const blob = new Blob(nextChunks, { type: mimeType })
-          if (blob.size > 0) enqueueChunk(blob)
-        }
-        
-        // Spin up the secondary engine
-        nextRecorderRef.current.start()
-
-      }, CHUNK_DURATION_MS - HANDOFF_BUFFER_MS)
-      timeoutsRef.current.push(preHandoffTimeout)
-
-      // 3. At the exact 30s mark, terminate the primary engine and swap roles
-      const swapTimeout = setTimeout(() => {
-        if (endedRef.current) return
-
-        // Stop the active container (fires its onstop configuration natively)
-        if (currentRecorderRef.current && currentRecorderRef.current.state === 'recording') {
-          currentRecorderRef.current.stop()
-        }
-
-        // Shift next container to current slot
-        currentRecorderRef.current = nextRecorderRef.current
-        nextRecorderRef.current = null
-
-        // Recursively trigger next loop sequence
-        recordSegment(false)
-      }, CHUNK_DURATION_MS)
-      timeoutsRef.current.push(swapTimeout)
-    }
-
-    // Begin loop entry
-    recordSegment(true)
-  }
-
-  // ── Live Initialization ──────────────────────────────────────────────────
+  // ── Live recording lifecycle ────────────────────────────────────────────
   const startLive = async () => {
-    setStatus('Requesting microphone access...')
+    setStatus('Provisioning new meeting on server...')
+    hasStartedLiveRef.current = false
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      streamRef.current = stream
-
-      setStatus('Provisioning new meeting on server...')
       const { meeting_id } = await api.startMeeting(token)
-      
-      // Initialize operational variables
-      meetingIdRef.current  = meeting_id
-      chunkIndexRef.current = 0
-      queueRef.current      = []
-      uploadingRef.current  = false
-      endedRef.current      = false
-      totalChunksRef.current = 0
-
+      meetingIdRef.current = meeting_id
+      setMeetingId(meeting_id) // triggers the effect above once React re-renders
       setMode('live')
-      setStatus('Recording meeting...')
-      setChunkCount(0)
-      setUploadedCount(0)
-
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : 'audio/webm'
-
-      startRecordingChain(stream, mimeType)
+      setFinalizing(false)
     } catch (err) {
       setStatus(`Initialization error: ${err.message}`)
       setMode('idle')
-      stopStream()
     }
   }
 
-  // ── Stop Action ───────────────────────────────────────────────────────────
   const stopLive = () => {
-    endedRef.current = true
-    clearAllTimeouts()
-
-    setStatus('Flushing final audio segment...')
-
-    // Shut down whatever recorder is actively listening
-    if (currentRecorderRef.current && currentRecorderRef.current.state === 'recording') {
-      currentRecorderRef.current.stop()
-    }
-    if (nextRecorderRef.current && nextRecorderRef.current.state === 'recording') {
-      nextRecorderRef.current.stop()
-    }
-
-    stopStream()
-    setMode('upload')
-
-    // Allow execution window for final onstop data collection loops to settle
-    setTimeout(() => {
-      totalChunksRef.current = chunkIndexRef.current
-      console.log(`Meeting concluded. Evaluating queue processing status. Total chunks: ${totalChunksRef.current}`)
-      
-      if (queueRef.current.length === 0 && !uploadingRef.current) {
-        triggerAnalysis(meetingIdRef.current)
-      } else {
-        setStatus(`Uploading final audio buffers (${queueRef.current.length} items remaining)...`)
-      }
-    }, 600)
+    // Closing the WebSocket (after sending {"type": "end"}, handled inside
+    // the hook) is the signal our backend uses to know the meeting has
+    // ended deliberately — it assembles the final transcript from
+    // everything Deepgram sent during the session and queues analysis
+    // itself. The frontend doesn't need to declare a chunk count anymore.
+    stopLiveAudio()
+    setFinalizing(true)
+    setStatus('Finalizing transcript — running analysis engine...')
+    startPolling(meetingIdRef.current)
   }
 
-  const triggerAnalysis = async (meetingId) => {
-    setStatus('Finalizing file links — running analysis engine...')
-    try {
-      await api.endMeeting(token, meetingId, totalChunksRef.current)
-      setStatus('Analyzing processing logs... (May take a moment)')
-      startPolling(meetingId)
-    } catch (err) {
-      setStatus(`Analysis execution failed: ${err.message}`)
-    }
+  const startPolling = (meeting_id) => {
+    pollRef.current = setInterval(async () => {
+      try {
+        const result = await api.getResults(token, meeting_id)
+        if (result.status === 'done') {
+          clearInterval(pollRef.current)
+          setMeeting(result)
+          setMode('done')
+          setStatus('')
+        } else if (result.status === 'failed') {
+          clearInterval(pollRef.current)
+          setStatus('Backend workers encountered a tracking error.')
+        }
+      } catch (_) {}
+    }, 10000)
   }
+
+  // ── Manual file-upload lifecycle (unchanged) ─────────────────────────────
   const runUpload = async () => {
     if (!file) return
     setUploading(true)
@@ -282,22 +147,6 @@ export default function Meeting({ token }) {
     } finally {
       setUploading(false)
     }
-  }
-  const startPolling = (meeting_id) => {
-    pollRef.current = setInterval(async () => {
-      try {
-        const result = await api.getResults(token, meeting_id)
-        if (result.status === 'done') {
-          clearInterval(pollRef.current)
-          setMeeting(result)
-          setMode('done')
-          setStatus('')
-        } else if (result.status === 'failed') {
-          clearInterval(pollRef.current)
-          setStatus('Backend workers encountered a tracking error.')
-        }
-      } catch (_) {}
-    }, 10000)
   }
 
   // ── Results view ──────────────────────────────────────────────────────────
@@ -364,7 +213,7 @@ export default function Meeting({ token }) {
           <div style={styles.modeCard} onClick={startLive}>
             <span style={styles.modeIcon}>🎙</span>
             <span style={styles.modeLabel}>Live recording</span>
-            <span style={styles.modeSub}>Record now · opus compressed · chunks upload every 30s</span>
+            <span style={styles.modeSub}>Captions appear as you speak · live speaker labels</span>
           </div>
           <div style={styles.modeCard} onClick={() => setMode('upload')}>
             <span style={styles.modeIcon}>📁</span>
@@ -374,34 +223,42 @@ export default function Meeting({ token }) {
         </div>
       )}
 
-      {mode === 'live' && (
+      {mode === 'live' && !finalizing && (
         <div style={styles.liveBox}>
-          <div style={styles.recDot} />
-          <p style={styles.recLabel}>Recording in progress</p>
-          <div style={styles.chunkStats}>
-            <div style={styles.statBox}>
-              <span style={styles.statNum}>{chunkCount}</span>
-              <span style={styles.statLabel}>recorded</span>
-            </div>
-            <div style={styles.statDivider} />
-            <div style={styles.statBox}>
-              <span style={styles.statNum}>{uploadedCount}</span>
-              <span style={styles.statLabel}>uploaded</span>
-            </div>
-            <div style={styles.statDivider} />
-            <div style={styles.statBox}>
-              <span style={styles.statNum}>{queueRef.current.length}</span>
-              <span style={styles.statLabel}>queued</span>
-            </div>
+          <div style={{
+            ...styles.recDot,
+            background: liveStatus === 'live' ? '#ff6b6b' : '#555',
+            animation: liveStatus === 'live' ? 'pulse 1.5s ease-in-out infinite' : 'none'
+          }} />
+          <p style={styles.recLabel}>
+            {liveStatus === 'connecting' && 'Connecting...'}
+            {liveStatus === 'live'       && 'Recording live'}
+            {liveStatus === 'error'      && status}
+          </p>
+
+          {/* Live captions — auto-scrolling transcript as Deepgram sends it back */}
+          <div style={styles.captionsBox}>
+            {segments.length === 0 && (
+              <p style={styles.captionPlaceholder}>Start talking — your words will appear here in real time.</p>
+            )}
+            {segments.map((seg, i) => (
+              <p key={i} style={{ ...styles.captionLine, opacity: seg.isFinal ? 1 : 0.55 }}>
+                <span style={styles.captionSpeaker}>Speaker {seg.speaker}:</span> {seg.text}
+              </p>
+            ))}
           </div>
-          <p style={styles.recSub}>Opus compressed · uploading sequentially · 32kbps</p>
-          <button style={styles.btnStop} onClick={stopLive}>
+
+          <button style={styles.btnStop} onClick={stopLive} disabled={liveStatus !== 'live'}>
             Stop & Analyze
           </button>
         </div>
       )}
 
-      {mode === 'upload' && !status.includes('Analyzing') && !uploading && (
+      {mode === 'live' && finalizing && (
+        <p style={styles.status}>{status}</p>
+      )}
+
+      {mode === 'upload' && !uploading && (
         <>
           <input type="file" accept=".ogg,.mp3,.wav,.m4a,.mp4,.webm"
             onChange={e => setFile(e.target.files[0])} style={styles.fileInput} />
@@ -412,7 +269,7 @@ export default function Meeting({ token }) {
         </>
       )}
 
-      {status && <p style={styles.status}>{status}</p>}
+      {status && mode !== 'live' && <p style={styles.status}>{status}</p>}
     </div>
   )
 }
@@ -465,14 +322,12 @@ const styles = {
   modeLabel:   { color: '#fff', fontSize: '16px', fontWeight: 600 },
   modeSub:     { color: '#555', fontSize: '13px', lineHeight: 1.5 },
   liveBox:     { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '12px', padding: '2.5rem', textAlign: 'center' },
-  recDot:      { width: '14px', height: '14px', borderRadius: '50%', background: '#ff6b6b', margin: '0 auto 1.5rem', animation: 'pulse 1.5s ease-in-out infinite' },
+  recDot:      { width: '14px', height: '14px', borderRadius: '50%', margin: '0 auto 1.5rem' },
   recLabel:    { color: '#fff', fontSize: '18px', fontWeight: 600, margin: '0 0 1.5rem' },
-  chunkStats:  { display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0', marginBottom: '1rem', background: '#111', borderRadius: '10px', padding: '1rem', border: '1px solid #2a2a2a' },
-  statBox:     { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' },
-  statNum:     { color: '#fff', fontSize: '28px', fontWeight: 700 },
-  statLabel:   { color: '#555', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em' },
-  statDivider: { width: '1px', height: '40px', background: '#2a2a2a', margin: '0 8px' },
-  recSub:      { color: '#555', fontSize: '12px', margin: '0 0 1.5rem' },
+  captionsBox: { background: '#111', border: '1px solid #2a2a2a', borderRadius: '10px', padding: '1.25rem', marginBottom: '1.5rem', maxHeight: '320px', overflowY: 'auto', textAlign: 'left' },
+  captionPlaceholder: { color: '#444', fontSize: '13px', fontStyle: 'italic', margin: 0 },
+  captionLine: { color: '#ddd', fontSize: '14px', lineHeight: 1.7, margin: '0 0 8px' },
+  captionSpeaker: { color: '#6c5ce7', fontWeight: 600 },
   btnStop:     { padding: '11px 28px', borderRadius: '8px', background: '#ff6b6b', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '14px' },
   fileInput:   { color: '#aaa', fontSize: '14px', marginBottom: '8px' },
   filename:    { color: '#666', fontSize: '13px', margin: '0 0 1rem' },
