@@ -1,58 +1,51 @@
 name: Deploy OSF-Suite to EC2 via ECR
-
 on:
   push:
     branches:
       - main
   workflow_dispatch:
-
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
-
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
-
       - name: Log in to Amazon ECR
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
-
       # whisper: Dockerfile lives at repo root, build context is root
       - name: Build and push whisper-service image
         run: |
           docker build -t $ECR_REGISTRY/osf-suite/whisper-service:latest -f dockerfile .
           docker push $ECR_REGISTRY/osf-suite/whisper-service:latest
-
       # insights and worker share the exact same build (same context,
       # same Dockerfile) - only the runtime `command:` differs in compose.
       # Build once, push under both tags to avoid duplicate work.
+      # NOTE: `ollama` is intentionally absent from this pipeline — it was
+      # always the public ollama/ollama image, never custom-built, and as
+      # of the switch to Ollama Cloud it's no longer part of the stack at
+      # all (see docker-compose.yml). Nothing to change here for that.
       - name: Build insights/worker shared image
         run: |
           docker build -t $ECR_REGISTRY/osf-suite/insights:latest -f insights/dockerfile insights
           docker tag $ECR_REGISTRY/osf-suite/insights:latest $ECR_REGISTRY/osf-suite/worker:latest
-
       - name: Push insights image
         run: docker push $ECR_REGISTRY/osf-suite/insights:latest
-
       - name: Push worker image
         run: docker push $ECR_REGISTRY/osf-suite/worker:latest
-
       - name: Build and push frontend image
         run: |
           docker build -t $ECR_REGISTRY/osf-suite/frontend:latest -f frontend/dockerfile frontend
           docker push $ECR_REGISTRY/osf-suite/frontend:latest
-
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
@@ -66,26 +59,25 @@ jobs:
           script: |
             set -e
             cd ~/OSF-Suite
-
             echo "Authenticating to ECR via instance role..."
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
               docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
-
             echo "Pulling latest code (for compose file / nginx config changes)..."
             git pull origin main
-
             echo "Pulling latest images from ECR..."
             docker compose pull
-
             echo "Restarting stack..."
-            docker compose up -d
-
+            # --remove-orphans stops and removes containers for services
+            # that no longer exist in docker-compose.yml — specifically
+            # needed this deploy to actually retire the old self-hosted
+            # `ollama` container now that the stack uses Ollama Cloud
+            # instead. Without this flag, that container would keep
+            # running indefinitely, invisible to the current compose file.
+            docker compose up -d --remove-orphans
             echo "Pruning old unused images..."
             docker image prune -f
-
             echo "restarting nginx..."
             docker compose restart nginx
-
       - name: Verify deployment
         uses: appleboy/ssh-action@v1.0.3
         with:
