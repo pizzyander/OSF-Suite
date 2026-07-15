@@ -13,14 +13,26 @@ from embeddings import similarity_search
 from reconciler import reconciler_loop
 
 REDIS_URL       = os.getenv("REDIS_URL",       "redis://redis:6379")
-OLLAMA_URL      = os.getenv("OLLAMA_URL",      "http://ollama:11434")
-OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL",    "phi3:mini")
-TINYLLAMA_MODEL = os.getenv("TINYLLAMA_MODEL", "tinyllama")
+# Ollama Cloud acts as a remote host for the same API your self-hosted
+# instance used — same /api/generate endpoint, same request/response shape.
+# The only real differences are the URL, the auth header, and which models
+# exist there (phi3:mini and tinyllama are LOCAL-ONLY models — neither has
+# a :cloud tag, so both had to be replaced with a model Cloud actually hosts).
+OLLAMA_URL      = os.getenv("OLLAMA_URL",      "https://ollama.com")
+OLLAMA_API_KEY  = os.getenv("OLLAMA_API_KEY",  "")
+OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL",    "gpt-oss:20b-cloud")
+PASS1_MODEL     = os.getenv("PASS1_MODEL",     "gpt-oss:20b-cloud")
 SQS_QUEUE_URL   = os.getenv("SQS_QUEUE_URL",   "")
 AWS_REGION      = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
 WHISPER_URL     = os.getenv("WHISPER_URL",     "http://whisper:8000")
 DIARIZATION_URL = os.getenv("DIARIZATION_URL", "http://diarization:8002")
 S3_BUCKET       = os.getenv("S3_BUCKET",       "")
+
+# Ollama Cloud requires this header on every request; self-hosted Ollama
+# ignores it harmlessly if it's present, so this is safe to always send —
+# switching back to self-hosted later needs no code change here, just
+# OLLAMA_URL/OLLAMA_API_KEY in .env.
+OLLAMA_HEADERS = {"Authorization": f"Bearer {OLLAMA_API_KEY}"} if OLLAMA_API_KEY else {}
 
 PROMPT_CACHE_KEY = "osf:prompt_cache:system_v1"
 PROMPT_CACHE_TTL = 60 * 60 * 24
@@ -147,8 +159,9 @@ async def extract_keywords(transcript: str) -> dict:
         async with httpx.AsyncClient(timeout=60) as client:
             response = await client.post(
                 f"{OLLAMA_URL}/api/generate",
+                headers=OLLAMA_HEADERS,
                 json={
-                    "model": TINYLLAMA_MODEL,
+                    "model": PASS1_MODEL,
                     "prompt": prompt,
                     "stream": False,
                     "format": "json",
@@ -229,6 +242,7 @@ async def analyze(transcript: str, company_context: str, system_prompt: str) -> 
     async with httpx.AsyncClient(timeout=1500) as client:
         response = await client.post(
             f"{OLLAMA_URL}/api/generate",
+            headers=OLLAMA_HEADERS,
             json={
                 "model": OLLAMA_MODEL,
                 "system": system_prompt,

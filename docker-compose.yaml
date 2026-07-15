@@ -43,16 +43,14 @@
       - osf-net
     restart: unless-stopped
 
-  ollama:
-    image: ollama/ollama:0.1.44
-    container_name: ollama
-    volumes:
-      - ollama-models:/root/.ollama
-    ports:
-      - "11434:11434"
-    networks:
-      - osf-net
-    restart: unless-stopped
+  # NOTE: the self-hosted `ollama` service that used to live here has been
+  # removed. Both `insights` and `worker` now talk to Ollama Cloud
+  # (https://ollama.com) instead — nothing in this stack calls a local
+  # Ollama container anymore. Removing it frees real RAM/disk on the EC2
+  # instance. To revert to self-hosted later: re-add an `ollama` service
+  # (image: ollama/ollama, volume for model weights, port 11434), point
+  # OLLAMA_URL back at http://ollama:11434 for insights/worker below, and
+  # re-add `depends_on: ollama: condition: service_started` to both.
 
   frontend:
     build:
@@ -78,17 +76,20 @@
       - .env
     environment:
       WHISPER_URL: http://whisper:8000
-      OLLAMA_URL: http://ollama:11434
-      OLLAMA_MODEL: phi3:mini
+      # Unused directly by any route in main.py today, but kept consistent
+      # with worker's Cloud config rather than left pointing at a
+      # self-hosted URL that no longer exists in this stack.
+      OLLAMA_URL: https://ollama.com
+      OLLAMA_MODEL: gpt-oss:20b-cloud
       REDIS_URL: redis://redis:6379
       AWS_DEFAULT_REGION: us-east-1
       S3_BUCKET: osf-suite-audio
       DIARIZATION_URL: http://diarization:8002
+      # DEEPGRAM_API_KEY and OLLAMA_API_KEY are picked up from .env via
+      # env_file above — not duplicated here to avoid two sources of truth.
     depends_on:
       whisper:
         condition: service_healthy
-      ollama:
-        condition: service_started
       redis:
         condition: service_started
     networks:
@@ -106,21 +107,25 @@
       - .env
     environment:
       WHISPER_URL: http://whisper:8000
-      OLLAMA_URL: http://ollama:11434
-      OLLAMA_MODEL: phi3:mini
+      OLLAMA_URL: https://ollama.com
+      OLLAMA_MODEL: gpt-oss:20b-cloud
+      PASS1_MODEL: gpt-oss:20b-cloud
       REDIS_URL: redis://redis:6379
       AWS_DEFAULT_REGION: us-east-1
       S3_BUCKET: osf-suite-audio
+      # OLLAMA_API_KEY comes from .env via env_file above.
     depends_on:
       whisper:
         condition: service_healthy
-      ollama:
-        condition: service_started
       redis:
         condition: service_started
     networks:
       - osf-net
-   # restart: unless-stopped
+    # Un-commented: the reconciler that sweeps for orphaned live-transcription
+    # sessions runs INSIDE this process (reconciler_loop, started in run()).
+    # If the worker crashes and doesn't restart, that safety net silently
+    # goes down with it — auto-restart is load-bearing here, not cosmetic.
+    restart: unless-stopped
 
   certbot:
     image: certbot/certbot
@@ -142,7 +147,6 @@ networks:
 
 volumes:
   whisper-models:
-  ollama-models:
   certbot-etc:
   certbot-var:
   certbot-www:
