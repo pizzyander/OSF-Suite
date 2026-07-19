@@ -55,28 +55,52 @@ def chunk_text(text: str) -> List[str]:
     return chunks if chunks else [text[:CHUNK_SIZE]]
 
 
+def get_context_owner_id(agent) -> str:
+    """
+    Returns the key that context storage/retrieval is scoped to.
+
+    Individual accounts (agent.org_id is None) are scoped to their own
+    agent id, exactly as before this change. Org members are scoped to
+    their org_id instead — every rep in the org shares one pool of
+    context rather than each uploading the same pricing sheet separately.
+
+    NOTE: ContextChunk's DB column is still literally named `agent_id`
+    (we don't have db_vectors.py to safely rename it in this pass) — for
+    org accounts, this function returns the org_id and that value gets
+    stored INTO that agent_id column. It's a values-only reinterpretation
+    of an existing column, not a schema change. Works safely because
+    agent ids and org ids are both uuid4 strings drawn from separate
+    generation calls, so they never collide.
+    """
+    return agent.org_id if agent.org_id else agent.id
+
+
 async def embed_and_store(
-    agent_id:   str,
+    owner_id:   str,
     context_id: str,
     text:       str,
     db:         AsyncSession,
 ):
-    """Chunk + embed a context document and store in pgvector."""
+    """
+    Chunk + embed a context document and store in pgvector, scoped to
+    owner_id — either an individual agent's id, or an org's id for shared
+    team context. Caller resolves which one via get_context_owner_id().
+    """
     from db import ContextChunk
 
-    # Remove old chunks for this agent
+    # Remove old chunks for this owner (agent or org)
     await db.execute(
-        delete(ContextChunk).where(ContextChunk.agent_id == agent_id)
+        delete(ContextChunk).where(ContextChunk.agent_id == owner_id)
     )
 
     chunks = chunk_text(text)
-    print(f"Embedding {len(chunks)} chunks for agent {agent_id}")
+    print(f"Embedding {len(chunks)} chunks for owner {owner_id}")
 
     for i, chunk in enumerate(chunks):
         vector = embed_text(chunk)
         row    = ContextChunk(
             id          = str(uuid.uuid4()),
-            agent_id    = agent_id,
+            agent_id    = owner_id,
             context_id  = context_id,
             chunk_index = i,
             chunk_text  = chunk,
@@ -85,23 +109,26 @@ async def embed_and_store(
         db.add(row)
 
     await db.commit()
-    print(f"Stored {len(chunks)} vectors for agent {agent_id}")
+    print(f"Stored {len(chunks)} vectors for owner {owner_id}")
 
 
 async def similarity_search(
-    agent_id: str,
+    owner_id: str,
     query:    str,
     db:       AsyncSession,
     top_k:    int = TOP_K,
 ) -> List[str]:
-    """Find top_k most relevant chunks for this agent using cosine distance."""
+    """
+    Find top_k most relevant chunks for this owner (agent or org) using
+    cosine distance. Caller resolves owner_id via get_context_owner_id().
+    """
     from db import ContextChunk
 
     query_vector = embed_text(query)
 
     result = await db.execute(
         select(ContextChunk.chunk_text)
-        .where(ContextChunk.agent_id == agent_id)
+        .where(ContextChunk.agent_id == owner_id)
         .order_by(ContextChunk.embedding.cosine_distance(query_vector))
         .limit(top_k)
     )

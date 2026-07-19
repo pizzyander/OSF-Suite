@@ -13,4 +13,8 @@ COPY context_routes.py .
 COPY extraction.py .
 COPY live_routes.py .
 COPY reconciler.py .
+COPY db_org.py .
+COPY onboarding_routes.py .
+COPY org_routes.py .
+COPY manager_routes.py .
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]

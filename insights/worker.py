@@ -7,7 +7,7 @@ import redis.asyncio as aioredis
 from datetime import datetime
 from sqlalchemy import select
 from botocore.config import Config
-from db import init_db, AsyncSessionLocal, Meeting
+from db import init_db, AsyncSessionLocal, Meeting, Agent
 from db_context import CompanyContext
 from embeddings import similarity_search
 from reconciler import reconciler_loop
@@ -189,41 +189,61 @@ def build_rag_query(keywords: dict) -> str:
     return "\n".join(parts) if parts else ""
 
 
+async def resolve_context_scope(agent_id: str):
+    """
+    Looks up the requesting agent's org membership and returns:
+      (owner_id, scope_filter) where owner_id is what Redis/pgvector are
+      keyed by (org_id for org members, agent_id for individuals), and
+      scope_filter is the matching SQLAlchemy WHERE clause for the
+      CompanyContext table specifically (which — unlike Redis/pgvector —
+      distinguishes agent_id from org_id as two separate columns).
+    """
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Agent).where(Agent.id == agent_id))
+        agent = result.scalar_one_or_none()
+
+    if agent and agent.org_id:
+        return agent.org_id, (CompanyContext.org_id == agent.org_id)
+    return agent_id, ((CompanyContext.agent_id == agent_id) & (CompanyContext.org_id.is_(None)))
+
+
 async def get_agent_context_rag(agent_id: str, rag_query: str) -> str:
+    owner_id, scope_filter = await resolve_context_scope(agent_id)
+
     if rag_query:
         try:
             async with AsyncSessionLocal() as db:
-                chunks = await similarity_search(agent_id, rag_query, db)
+                chunks = await similarity_search(owner_id, rag_query, db)
             if chunks:
                 context = "\n\n".join(chunks)
-                print(f"RAG retrieved {len(chunks)} chunks ({len(context)} chars) for agent {agent_id}")
+                print(f"RAG retrieved {len(chunks)} chunks ({len(context)} chars) for owner {owner_id}")
                 return context
         except Exception as e:
-            print(f"pgvector search failed for agent {agent_id}: {e}")
+            print(f"pgvector search failed for owner {owner_id}: {e}")
 
     try:
         async with aioredis.from_url(REDIS_URL) as r:
-            cached = await r.get(f"agent_context:{agent_id}")
+            cached = await r.get(f"agent_context:{owner_id}")
             if cached:
                 text = cached.decode() if isinstance(cached, bytes) else cached
-                print(f"Fallback: using full Redis context ({len(text)} chars) for agent {agent_id}")
+                print(f"Fallback: using full Redis context ({len(text)} chars) for owner {owner_id}")
                 return text
     except Exception as e:
-        print(f"Redis context fallback failed for agent {agent_id}: {e}")
+        print(f"Redis context fallback failed for owner {owner_id}: {e}")
 
     try:
         async with AsyncSessionLocal() as db:
             result = await db.execute(
                 select(CompanyContext)
-                .where(CompanyContext.agent_id == agent_id)
+                .where(scope_filter)
                 .where(CompanyContext.is_active == True)
             )
             context = result.scalar_one_or_none()
             if context:
-                print(f"Fallback: using Postgres context ({len(context.extracted_text)} chars) for agent {agent_id}")
+                print(f"Fallback: using Postgres context ({len(context.extracted_text)} chars) for owner {owner_id}")
                 return context.extracted_text
     except Exception as e:
-        print(f"Postgres context fallback failed for agent {agent_id}: {e}")
+        print(f"Postgres context fallback failed for owner {owner_id}: {e}")
 
     return ""
 

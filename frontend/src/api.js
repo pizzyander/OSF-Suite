@@ -74,6 +74,100 @@ export const api = {
   getMeetings:    (token)                   => request('GET',  '/meetings?limit=20', null, token),
   getGrowth:      (token)                   => request('GET',  '/growth',          null, token),
 
+  // -- Onboarding ------------------------------------------------------------
+  saveOnboarding: (token, fields) =>
+    request('PUT', '/agents/onboarding', fields, token),
+
+  // -- Organizations -----------------------------------------------------------
+  createOrganization: (token, name) =>
+    request('POST', '/organizations', { name }, token),
+
+  createInvite: (token, email, role, manager_id = null) =>
+    request('POST', '/organizations/invites', { email, role, manager_id }, token),
+
+  listInvites: (token) =>
+    request('GET', '/organizations/invites', null, token),
+
+  revokeInvite: (token, invite_id) =>
+    request('DELETE', `/organizations/invites/${invite_id}`, null, token),
+
+  // -- Invite acceptance (the /join?token=... landing page) -------------------
+  // previewInvite is PUBLIC — no token/auth needed, callable before login.
+  previewInvite: (inviteToken) =>
+    request('GET', `/invites/${inviteToken}`, null, null),
+
+  acceptInvite: (token, inviteToken) =>
+    request('POST', `/invites/${inviteToken}/accept`, null, token),
+
+  listMembers: (token) =>
+    request('GET', '/organizations/members', null, token),
+
+  updateMember: (token, agent_id, updates) =>
+    request('PATCH', `/organizations/members/${agent_id}`, updates, token),
+
+  // -- Manager dashboard -----------------------------------------------------
+  getTeamMeetings: (token, limit = 50) =>
+    request('GET', `/team/meetings?limit=${limit}`, null, token),
+
+  getTeamStats: (token) =>
+    request('GET', '/team/stats', null, token),
+
+  // -- Onboarding ------------------------------------------------------------
+  saveOnboarding: (token, fields) =>
+    request('PUT', '/agents/onboarding', fields, token),
+
+  // -- Organizations -----------------------------------------------------------
+  createOrganization: (token, name) =>
+    request('POST', '/organizations', { name }, token),
+
+  createInvite: (token, email, role, manager_id = null) =>
+    request('POST', '/organizations/invites', { email, role, manager_id }, token),
+
+  listInvites: (token) =>
+    request('GET', '/organizations/invites', null, token),
+
+  revokeInvite: (token, invite_id) =>
+    request('DELETE', `/organizations/invites/${invite_id}`, null, token),
+
+  // -- Invite acceptance (the /join?token=... landing page) -------------------
+  // previewInvite is PUBLIC — no token/auth needed, callable before login.
+  previewInvite: (inviteToken) =>
+    request('GET', `/invites/${inviteToken}`, null, null),
+
+  acceptInvite: (token, inviteToken) =>
+    request('POST', `/invites/${inviteToken}/accept`, null, token),
+
+  listMembers: (token) =>
+    request('GET', '/organizations/members', null, token),
+
+  updateMember: (token, agent_id, updates) =>
+    request('PATCH', `/organizations/members/${agent_id}`, updates, token),
+  
+  // -- Onboarding ------------------------------------------------------------
+  saveOnboarding: (token, fields) =>
+    request('PUT', '/agents/onboarding', fields, token),
+
+  // -- Organizations -----------------------------------------------------------
+  createOrganization: (token, name) =>
+    request('POST', '/organizations', { name }, token),
+
+  createInvite: (token, email, role, manager_id = null) =>
+    request('POST', '/organizations/invites', { email, role, manager_id }, token),
+
+  listInvites: (token) =>
+    request('GET', '/organizations/invites', null, token),
+
+  revokeInvite: (token, invite_id) =>
+    request('DELETE', `/organizations/invites/${invite_id}`, null, token),
+
+  // -- Invite acceptance (the /join?token=... landing page) -------------------
+  // previewInvite is PUBLIC — no token/auth needed, callable before login.
+  previewInvite: (inviteToken) =>
+    request('GET', `/invites/${inviteToken}`, null, null),
+
+  acceptInvite: (token, inviteToken) =>
+    request('POST', `/invites/${inviteToken}/accept`, null, token),
+
   getUploadUrl:   (token, id, filename)     => request('GET',
     `/meetings/${id}/upload-url?filename=${encodeURIComponent(filename)}`, null, token),
 

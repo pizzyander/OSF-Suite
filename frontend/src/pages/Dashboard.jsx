@@ -2,9 +2,13 @@ import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 
-export default function Dashboard({ token, onLogout }) {
+export default function Dashboard({ token, profile, onLogout }) {
   const [meetings, setMeetings] = useState([])
-  const [agent, setAgent]       = useState(null)
+  // Seed from the `profile` prop if App.jsx already fetched it (avoids a
+  // redundant /agents/me call on every dashboard load) — falls back to
+  // self-fetching so this component still works fine if ever rendered
+  // standalone without that prop.
+  const [agent, setAgent]       = useState(profile || null)
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState('')
   const navigate = useNavigate()
@@ -23,7 +27,9 @@ export default function Dashboard({ token, onLogout }) {
   }, [token])
 
   useEffect(() => {
-    api.me(token).then(setAgent).catch(() => onLogout())
+    if (!profile) {
+      api.me(token).then(setAgent).catch(() => onLogout())
+    }
     fetchMeetings()
   }, [])
 
@@ -45,12 +51,33 @@ export default function Dashboard({ token, onLogout }) {
       <div style={s.header}>
         <div>
           <h2 style={s.title}>OSF Suite</h2>
-          {agent && <p style={s.sub}>{agent.name} · {agent.email}</p>}
+          {agent && (
+            <p style={s.sub}>
+              {agent.name} · {agent.email}
+              {agent.org_name && (
+                <>
+                  {' · '}
+                  <span style={s.orgBadge}>{agent.org_name}</span>
+                  {agent.role && <span style={s.roleTag}> ({agent.role})</span>}
+                </>
+              )}
+            </p>
+          )}
         </div>
         <div style={s.actions}>
           <button style={s.btnPrimary} onClick={() => navigate('/meeting')}>
             + New Meeting
           </button>
+          {(agent?.role === 'admin' || agent?.role === 'manager') && (
+            <button style={s.btnGhost} onClick={() => navigate('/manager')}>
+              Team Performance
+            </button>
+          )}
+          {agent?.role === 'admin' && (
+            <button style={s.btnGhost} onClick={() => navigate('/team')}>
+              Team
+            </button>
+          )}
           <button style={s.btnGhost} onClick={() => navigate('/context')}>
             Manage Company Context
           </button>
@@ -144,6 +171,8 @@ const s = {
   header:      { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' },
   title:       { color: '#fff', margin: 0, fontSize: '22px', fontWeight: 600 },
   sub:         { color: '#555', margin: '4px 0 0', fontSize: '13px' },
+  orgBadge:    { color: '#6c5ce7', fontWeight: 600 },
+  roleTag:     { color: '#555' },
   actions:     { display: 'flex', gap: '8px', flexWrap: 'wrap' },
   sectionTitle:{ color: '#aaa', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 1rem' },
   muted:       { color: '#555', fontSize: '14px' },

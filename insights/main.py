@@ -11,8 +11,9 @@ from slowapi.errors import RateLimitExceeded
 import redis.asyncio as aioredis
 from botocore.config import Config
 import logging
-
-
+from org_routes import router as org_router
+from onboarding_routes import router as onboarding_router
+from manager_routes import router as manager_router
 logger = logging.getLogger(__name__)
 
 from db import init_db, get_session, Agent, Meeting
@@ -71,10 +72,11 @@ app = FastAPI(title="OSF Insights Service", version="5.1.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-
-# After app is created (after the limiter setup)
+app.include_router(org_router)
 app.include_router(context_router)
 app.include_router(live_router)
+app.include_router(onboarding_router)
+app.include_router(manager_router)
 
 @app.on_event("startup")
 async def startup():
@@ -173,16 +175,6 @@ async def refresh_token(payload: dict, db: AsyncSession = Depends(get_session)):
 
 
 # -- Agent routes (protected) -------------------------------------------------
-
-@app.get("/agents/me")
-async def get_me(agent: Agent = Depends(get_current_agent)):
-    return {
-        "agent_id": agent.id,
-        "name": agent.name,
-        "email": agent.email,
-        "created_at": agent.created_at
-    }
-
 
 @app.put("/agents/password")
 async def change_password(
