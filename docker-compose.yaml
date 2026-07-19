@@ -31,8 +31,12 @@
     container_name: osf-nginx
     ports:
       - "80:80"
+      - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - certbot-etc:/etc/letsencrypt
+      - certbot-var:/var/lib/letsencrypt
+      - certbot-www:/var/www/certbot
     depends_on:
       - insights
     networks:
@@ -40,12 +44,13 @@
     restart: unless-stopped
 
   # NOTE: the self-hosted `ollama` service that used to live here has been
-  # removed. `insights` and `worker` now both talk to Ollama Cloud
-  # (https://ollama.com) — nothing in this stack calls a local Ollama
-  # container anymore. To revert to self-hosted later: re-add an `ollama`
-  # service (image: ollama/ollama, volume for model weights, port 11434),
-  # point OLLAMA_URL back at http://ollama:11434 below, and re-add
-  # `depends_on: ollama: condition: service_started` to insights/worker.
+  # removed. Both `insights` and `worker` now talk to Ollama Cloud
+  # (https://ollama.com) instead — nothing in this stack calls a local
+  # Ollama container anymore. Removing it frees real RAM/disk on the EC2
+  # instance. To revert to self-hosted later: re-add an `ollama` service
+  # (image: ollama/ollama, volume for model weights, port 11434), point
+  # OLLAMA_URL back at http://ollama:11434 for insights/worker below, and
+  # re-add `depends_on: ollama: condition: service_started` to both.
 
   frontend:
     build:
@@ -116,10 +121,18 @@
         condition: service_started
     networks:
       - osf-net
-    # The reconciler that sweeps for orphaned live-transcription sessions
-    # runs INSIDE this process — auto-restart is load-bearing here, not
-    # just cosmetic, since a dead worker also silently kills that safety net.
+    # Un-commented: the reconciler that sweeps for orphaned live-transcription
+    # sessions runs INSIDE this process (reconciler_loop, started in run()).
+    # If the worker crashes and doesn't restart, that safety net silently
+    # goes down with it — auto-restart is load-bearing here, not cosmetic.
     restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-var:/var/lib/letsencrypt
+      - certbot-www:/var/www/certbot
 
   redis:
     image: redis:7-alpine
@@ -134,3 +147,6 @@ networks:
 
 volumes:
   whisper-models:
+  certbot-etc:
+  certbot-var:
+  certbot-www:
