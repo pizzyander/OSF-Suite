@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import logging
+from datetime import datetime
 
 import boto3
 import websockets
@@ -9,8 +10,12 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from sqlalchemy import select
 
-from db import AsyncSessionLocal, Meeting
+from db import AsyncSessionLocal, Meeting, Agent
+from db_context import CompanyContext
 from auth import decode_token
+from embeddings import get_context_owner_id
+from nudge_triggers import classify_segment
+from nudge_engine import generate_event_nudge, generate_periodic_nudge
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -46,16 +51,21 @@ DEEPGRAM_URL = (
 HEARTBEAT_REFRESH_SECONDS = 20
 HEARTBEAT_TTL_SECONDS     = 60
 
+# How often the periodic "call health" nudge check runs (talk ratio,
+# discovery gaps, closing) — this is a slow-moving signal, not something
+# worth checking every few seconds like objections/buying signals are.
+PERIODIC_NUDGE_INTERVAL_SECONDS = 30
+# Skip periodic checks in the first few seconds of a call — barely any
+# transcript exists yet, so an LLM call here would just waste a request.
+MIN_CALL_MINUTES_BEFORE_PERIODIC_CHECKS = 0.5
 
-async def authenticate_ws(token: str, meeting_id: str) -> str | None:
+
+async def authenticate_ws(token: str, meeting_id: str) -> Agent | None:
     """
     Validates the JWT and confirms the requesting agent actually owns this
-    meeting. Returns the agent_id on success, None on any failure.
-
-    This mirrors what get_current_agent() does for your REST routes, but
-    browsers can't attach an Authorization header to a WebSocket handshake —
-    the token arrives as a query param instead, so we validate it by hand
-    here rather than reusing the HTTPBearer dependency.
+    meeting. Returns the full Agent row on success (not just the id) —
+    the nudge system needs agent.org_id to resolve shared team context,
+    which a bare id string can't give us.
     """
     try:
         agent_id = decode_token(token)
@@ -70,15 +80,51 @@ async def authenticate_ws(token: str, meeting_id: str) -> str | None:
             .where(Meeting.user_id == agent_id)
         )
         meeting = result.scalar_one_or_none()
+        if not meeting:
+            logger.warning(
+                f"Live auth failed for meeting={meeting_id}: no meeting found for "
+                f"agent={agent_id} (wrong owner, or meeting_id doesn't exist)"
+            )
+            return None
 
-    if not meeting:
-        logger.warning(
-            f"Live auth failed for meeting={meeting_id}: no meeting found for "
-            f"agent={agent_id} (wrong owner, or meeting_id doesn't exist)"
-        )
-        return None
+        agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
+        return agent_result.scalar_one_or_none()
 
-    return agent_id
+
+async def get_live_context(agent: Agent, redis_client: aioredis.Redis) -> str:
+    """
+    Fetches this agent's (or their org's) active company context, for
+    grounding nudges in real pricing/positioning instead of generic
+    advice — same Redis-first, Postgres-fallback pattern worker.py uses
+    for the post-call analysis, just without the RAG similarity search,
+    since nudge_engine trims to a fixed length itself rather than needing
+    query-specific retrieval.
+    """
+    owner_id = get_context_owner_id(agent)
+
+    try:
+        cached = await redis_client.get(f"agent_context:{owner_id}")
+        if cached:
+            return cached.decode() if isinstance(cached, bytes) else cached
+    except Exception as e:
+        logger.error(f"Redis context fetch failed for owner={owner_id}: {e}")
+
+    try:
+        async with AsyncSessionLocal() as db:
+            if agent.org_id:
+                scope_filter = (CompanyContext.org_id == agent.org_id)
+            else:
+                scope_filter = (CompanyContext.agent_id == agent.id) & (CompanyContext.org_id.is_(None))
+            result = await db.execute(
+                select(CompanyContext).where(scope_filter).where(CompanyContext.is_active == True)
+            )
+            context = result.scalar_one_or_none()
+            if context:
+                return context.extracted_text
+    except Exception as e:
+        logger.error(f"Postgres context fetch failed for owner={owner_id}: {e}")
+
+    return ""
 
 
 async def finalize_meeting(meeting_id: str, final_segments: list[dict]):
@@ -87,8 +133,7 @@ async def finalize_meeting(meeting_id: str, final_segments: list[dict]):
     during the live session, saves it, and queues the same "analyze" SQS
     message your worker already knows how to handle — so Pass 1/Pass 2 LLM
     analysis runs identically whether the transcript came from a live
-    session or a manual file upload. This function is the live-session
-    equivalent of what process_chunk() used to build up over many chunks.
+    session or a manual file upload.
     """
     lines = [f"[Speaker {seg['speaker']}]: {seg['text']}" for seg in final_segments]
     full_transcript = "\n".join(lines).strip()
@@ -128,28 +173,60 @@ async def live_transcription(websocket: WebSocket, meeting_id: str, token: str =
     # Accept the handshake FIRST. Custom close codes (4000-4999) only reach
     # the browser's onclose handler reliably for connections that completed
     # the handshake — closing before accept() instead surfaces as a generic
-    # HTTP-level rejection with no code the frontend can act on, which would
-    # make the 4401 check below silently pointless.
+    # HTTP-level rejection with no code the frontend can act on.
     await websocket.accept()
 
-    agent_id = await authenticate_ws(token, meeting_id)
-    if not agent_id:
+    agent = await authenticate_ws(token, meeting_id)
+    if not agent:
         await websocket.close(code=4401, reason="Unauthorized")
         return
 
-    logger.info(f"Live transcription session started for meeting={meeting_id}")
+    logger.info(f"Live transcription session started for meeting={meeting_id} agent={agent.id}")
 
-    # One Redis connection, reused for every incremental segment write during
-    # this session — opening a fresh connection per segment (as an earlier
-    # version of this did) adds needless overhead on longer calls with many
-    # final segments.
+    # One Redis connection, reused for every incremental write this session.
     redis_client = aioredis.from_url(REDIS_URL)
-    heartbeat_task = None  # declared here so exception handlers can safely cancel it too
+    heartbeat_task = None
+    periodic_nudge_task = None
+    # Fire-and-forget event nudge tasks land here so we can cancel any
+    # still in flight when the session ends, instead of leaking them.
+    background_nudge_tasks: set[asyncio.Task] = set()
+
+    # Sending happens from THREE different places now — the main
+    # transcript relay, individual event-nudge tasks, and the periodic
+    # nudge loop. Starlette's WebSocket.send_json isn't guaranteed safe
+    # for concurrent calls from multiple tasks at once, so every send in
+    # this handler goes through this one lock to keep frames from
+    # interleaving or corrupting each other.
+    ws_send_lock = asyncio.Lock()
+
+    context_text = await get_live_context(agent, redis_client)
+    session_start = datetime.utcnow()
 
     # Every FINAL segment Deepgram sends us, in arrival order — this list
-    # becomes the meeting's full transcript once the session ends.
+    # becomes the meeting's full transcript once the session ends, AND
+    # doubles as the running "call so far" the periodic nudge check reads.
     final_segments: list[dict] = []
+    # Rough per-speaker word counts, used for the talk-ratio nudge.
+    speaker_word_counts: dict[int, int] = {}
     ended_deliberately = False
+
+    async def send_nudge(category: str, text: str):
+        try:
+            async with ws_send_lock:
+                await websocket.send_json({"type": "nudge", "category": category, "text": text})
+        except Exception as e:
+            logger.error(f"Failed to send nudge (meeting={meeting_id}): {e}")
+
+    async def handle_event_nudge(category: str, segment_text: str):
+        """
+        Runs as a background task, NOT awaited inline — a slow LLM call
+        here must never block deepgram_to_browser from reading the next
+        transcript event. Worst case, a nudge just never lands for this
+        segment; the live captions keep flowing regardless.
+        """
+        nudge_text = await generate_event_nudge(category, segment_text, context_text)
+        if nudge_text:
+            await send_nudge(category, nudge_text)
 
     try:
         async with websockets.connect(
@@ -158,19 +235,11 @@ async def live_transcription(websocket: WebSocket, meeting_id: str, token: str =
         ) as deepgram_ws:
 
             async def browser_to_deepgram() -> bool:
-                """
-                Reads whatever the browser sends: raw PCM audio bytes get
-                forwarded straight to Deepgram; a {"type": "end"} JSON
-                message means the user deliberately clicked Stop.
-                Returns True for a deliberate end, False for a dropped
-                connection — the caller uses this to decide whether to
-                finalize the meeting or just clean up quietly.
-                """
                 while True:
                     message = await websocket.receive()
 
                     if message["type"] == "websocket.disconnect":
-                        return False  # connection dropped, not a deliberate end
+                        return False
 
                     if message.get("bytes") is not None:
                         await deepgram_ws.send(message["bytes"])
@@ -185,44 +254,33 @@ async def live_transcription(websocket: WebSocket, meeting_id: str, token: str =
                             return True
 
             async def deepgram_to_browser():
-                """
-                Reads transcript events back from Deepgram, relays a
-                simplified version to the browser for live captions, and
-                keeps a running list of finalized segments for when we
-                need to assemble the full transcript.
-                """
                 async for raw_message in deepgram_ws:
                     data = json.loads(raw_message)
 
                     if data.get("type") != "Results":
-                        continue  # ignore Metadata/UtteranceEnd/etc. for now
+                        continue
 
                     alt = data.get("channel", {}).get("alternatives", [{}])[0]
                     text = alt.get("transcript", "").strip()
                     if not text:
-                        continue  # Deepgram sends empty results during silence
+                        continue
 
                     is_final = data.get("is_final", False)
                     words = alt.get("words", [])
-                    # Diarization is per-word; we label the whole segment
-                    # with whichever speaker started it. Good enough for
-                    # live captions — fine-grained per-word speaker changes
-                    # are rare mid-sentence in a two-person sales call.
                     speaker = words[0].get("speaker", 0) if words else 0
 
-                    await websocket.send_json({
-                        "type": "transcript",
-                        "speaker": speaker,
-                        "text": text,
-                        "is_final": is_final,
-                    })
+                    async with ws_send_lock:
+                        await websocket.send_json({
+                            "type": "transcript",
+                            "speaker": speaker,
+                            "text": text,
+                            "is_final": is_final,
+                        })
 
                     if is_final:
                         final_segments.append({"speaker": speaker, "text": text})
-                        # Persist incrementally, not just at the end — if the
-                        # connection drops mid-call (wifi cut, tab crash), we
-                        # still have everything transcribed up to that point
-                        # sitting safely in Redis instead of only in memory.
+                        speaker_word_counts[speaker] = speaker_word_counts.get(speaker, 0) + len(text.split())
+
                         try:
                             await redis_client.rpush(
                                 f"meeting:{meeting_id}:live_segments",
@@ -231,15 +289,15 @@ async def live_transcription(websocket: WebSocket, meeting_id: str, token: str =
                         except Exception as e:
                             logger.error(f"Failed to persist live segment for meeting={meeting_id}: {e}")
 
+                        # Cheap keyword check first — only spend an LLM
+                        # call if this segment actually looks worth it.
+                        category = classify_segment(text)
+                        if category:
+                            task = asyncio.create_task(handle_event_nudge(category, text))
+                            background_nudge_tasks.add(task)
+                            task.add_done_callback(background_nudge_tasks.discard)
+
             async def heartbeat_loop():
-                """
-                Refreshes a short-lived "I'm still alive" key on a fixed
-                timer, independent of whether anyone is actually speaking.
-                Without this running on its own timer, a long silence in
-                the conversation (e.g. someone put on hold) would let the
-                heartbeat expire and the reconciler would wrongly treat a
-                perfectly healthy session as abandoned.
-                """
                 while True:
                     try:
                         await redis_client.set(
@@ -249,17 +307,52 @@ async def live_transcription(websocket: WebSocket, meeting_id: str, token: str =
                         logger.error(f"Heartbeat refresh failed for meeting={meeting_id}: {e}")
                     await asyncio.sleep(HEARTBEAT_REFRESH_SECONDS)
 
-            browser_task   = asyncio.create_task(browser_to_deepgram())
-            deepgram_task  = asyncio.create_task(deepgram_to_browser())
-            heartbeat_task = asyncio.create_task(heartbeat_loop())
+            async def periodic_nudge_loop():
+                """
+                Checks in on the call as a whole every ~30s — talk ratio,
+                discovery gaps, closing — rather than reacting to a single
+                sentence the way event nudges do.
+                """
+                while True:
+                    await asyncio.sleep(PERIODIC_NUDGE_INTERVAL_SECONDS)
+
+                    duration_minutes = (datetime.utcnow() - session_start).total_seconds() / 60
+                    if duration_minutes < MIN_CALL_MINUTES_BEFORE_PERIODIC_CHECKS or not final_segments:
+                        continue
+
+                    total_words = sum(speaker_word_counts.values())
+                    if total_words == 0:
+                        continue
+
+                    # ASSUMPTION: whoever spoke FIRST is the agent — reps
+                    # typically open a sales call with a greeting. This is
+                    # a heuristic, not a guarantee, and shares the same
+                    # root limitation as the "Speaker 0/1 vs Agent/Client"
+                    # gap flagged when diarization was first wired up.
+                    # Worth solving properly later (e.g. confirming roles
+                    # at call start) before leaning on this for anything
+                    # beyond a rough live nudge.
+                    agent_speaker = final_segments[0]["speaker"]
+                    agent_words = speaker_word_counts.get(agent_speaker, 0)
+                    agent_pct = round((agent_words / total_words) * 100)
+                    client_pct = 100 - agent_pct
+
+                    lines = [f"[Speaker {s['speaker']}]: {s['text']}" for s in final_segments]
+                    transcript_so_far = "\n".join(lines)
+
+                    result = await generate_periodic_nudge(
+                        transcript_so_far, agent_pct, client_pct, duration_minutes, context_text
+                    )
+                    if result:
+                        await send_nudge(result["category"], result["text"])
+
+            browser_task        = asyncio.create_task(browser_to_deepgram())
+            deepgram_task       = asyncio.create_task(deepgram_to_browser())
+            heartbeat_task       = asyncio.create_task(heartbeat_loop())
+            periodic_nudge_task  = asyncio.create_task(periodic_nudge_loop())
 
             ended_deliberately = await browser_task
 
-            # Tell Deepgram we're done sending audio, then give it a short
-            # grace period to flush any final results for words spoken right
-            # before Stop was clicked — without this, the last second or two
-            # of speech could be lost since Deepgram batches slightly behind
-            # real time.
             try:
                 await deepgram_ws.send(json.dumps({"type": "CloseStream"}))
             except Exception:
@@ -276,31 +369,22 @@ async def live_transcription(websocket: WebSocket, meeting_id: str, token: str =
         logger.error(f"Live transcription error for meeting={meeting_id}: {repr(e)}")
         ended_deliberately = False
 
-    # Belt-and-suspenders: whichever path we took to get here (clean stop,
-    # dropped connection, or an exception mid-session), make sure the
-    # heartbeat task isn't left running in the background — an un-cancelled
-    # heartbeat would keep refreshing the TTL key forever, permanently
-    # hiding a genuinely dead session from the reconciler.
+    # Belt-and-suspenders cleanup, covering every exit path.
     if heartbeat_task and not heartbeat_task.done():
         heartbeat_task.cancel()
+    if periodic_nudge_task and not periodic_nudge_task.done():
+        periodic_nudge_task.cancel()
+    for task in list(background_nudge_tasks):
+        if not task.done():
+            task.cancel()
 
     if final_segments:
-        # Finalize regardless of HOW the session ended. A dropped connection
-        # (wifi cut, tab crash) still leaves everything transcribed up to
-        # that point sitting in final_segments — throwing it away because
-        # the user didn't click Stop cleanly would lose real, usable data
-        # for no good reason. The coaching insights will simply reflect
-        # whatever portion of the call was captured.
         logger.info(
             f"Finalizing meeting={meeting_id} "
             f"(ended_deliberately={ended_deliberately}, segments={len(final_segments)})"
         )
         await finalize_meeting(meeting_id, final_segments)
 
-        # The transcript now lives safely in Postgres — the incremental
-        # backup copy in Redis (and its heartbeat) has served its purpose
-        # and can be cleared, rather than left behind indefinitely for
-        # every meeting ever recorded.
         try:
             await redis_client.delete(
                 f"meeting:{meeting_id}:live_segments",

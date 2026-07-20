@@ -34,6 +34,7 @@ export default function Meeting({ token }) {
     stop: stopLiveAudio,
     status: liveStatus,
     segments,
+    nudges,
     error: liveError,
   } = useLiveTranscription({ token, meetingId })
 
@@ -236,6 +237,21 @@ export default function Meeting({ token }) {
             {liveStatus === 'error'      && status}
           </p>
 
+          {/* Live coaching nudges — objections, buying signals, and periodic
+              call-health checks (talk ratio, discovery gaps, closing).
+              Rendered above the transcript since these are the thing a
+              rep needs to notice INSTANTLY, mid-conversation. */}
+          {nudges.length > 0 && (
+            <div style={styles.nudgeStack}>
+              {nudges.map(n => (
+                <div key={n.id} style={{ ...styles.nudgeCard, ...nudgeStyleFor(n.category) }}>
+                  <span style={styles.nudgeLabel}>{nudgeLabelFor(n.category)}</span>
+                  <p style={styles.nudgeText}>{n.text}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Live captions — auto-scrolling transcript as Deepgram sends it back */}
           <div style={styles.captionsBox}>
             {segments.length === 0 && (
@@ -272,6 +288,27 @@ export default function Meeting({ token }) {
       {status && mode !== 'live' && <p style={styles.status}>{status}</p>}
     </div>
   )
+}
+
+// Maps each nudge category to a short human label and a distinct color —
+// objections (needs attention, red-orange) read differently at a glance
+// from buying signals (good news, green) or call-health checks (neutral,
+// blue), so a rep can react to the right one on instinct without reading
+// closely mid-conversation.
+function nudgeLabelFor(category) {
+  return {
+    objection:     'Objection raised',
+    buying_signal: 'Buying signal',
+    talk_ratio:    'Talk ratio',
+    discovery_gap: 'Discovery gap',
+    closing:       'Closing opportunity',
+  }[category] || 'Coaching tip'
+}
+
+function nudgeStyleFor(category) {
+  if (category === 'objection')     return { borderColor: '#ff6b6b', background: '#2d1a1a' }
+  if (category === 'buying_signal') return { borderColor: '#6bffb8', background: '#0f2418' }
+  return { borderColor: '#6c8fff', background: '#1a1a2d' } // talk_ratio, discovery_gap, closing, fallback
 }
 
 function Grid({ label, items }) {
@@ -325,6 +362,10 @@ const styles = {
   recDot:      { width: '14px', height: '14px', borderRadius: '50%', margin: '0 auto 1.5rem' },
   recLabel:    { color: '#fff', fontSize: '18px', fontWeight: 600, margin: '0 0 1.5rem' },
   captionsBox: { background: '#111', border: '1px solid #2a2a2a', borderRadius: '10px', padding: '1.25rem', marginBottom: '1.5rem', maxHeight: '320px', overflowY: 'auto', textAlign: 'left' },
+  nudgeStack:  { display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '1.5rem', textAlign: 'left' },
+  nudgeCard:   { border: '1px solid', borderRadius: '10px', padding: '0.9rem 1.1rem', animation: 'fadeIn 0.3s ease' },
+  nudgeLabel:  { display: 'block', fontSize: '11px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', opacity: 0.75, marginBottom: '4px', color: '#fff' },
+  nudgeText:   { color: '#fff', fontSize: '14px', lineHeight: 1.5, margin: 0, fontWeight: 500 },
   captionPlaceholder: { color: '#444', fontSize: '13px', fontStyle: 'italic', margin: 0 },
   captionLine: { color: '#ddd', fontSize: '14px', lineHeight: 1.7, margin: '0 0 8px' },
   captionSpeaker: { color: '#6c5ce7', fontWeight: 600 },

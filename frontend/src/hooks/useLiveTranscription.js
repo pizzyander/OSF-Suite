@@ -28,6 +28,7 @@ const WS_BASE = import.meta.env.VITE_WS_URL || (
 export function useLiveTranscription({ token, meetingId }) {
   const [status, setStatus] = useState('idle') // idle | connecting | live | error | stopped
   const [segments, setSegments] = useState([])  // [{ speaker, text, isFinal }]
+  const [nudges, setNudges] = useState([])       // [{ id, category, text }]
   const [error, setError] = useState(null)
 
   const wsRef = useRef(null)
@@ -42,6 +43,7 @@ export function useLiveTranscription({ token, meetingId }) {
     setStatus('connecting')
     setError(null)
     setSegments([])
+    setNudges([])
 
     try {
       // 1. Open the WebSocket to our backend first, so we're not holding
@@ -92,6 +94,15 @@ export function useLiveTranscription({ token, meetingId }) {
               }
               return next
             })
+          } else if (msg.type === 'nudge') {
+            const id = `${Date.now()}-${Math.random()}`
+            setNudges(prev => [...prev, { id, category: msg.category, text: msg.text }])
+            // Auto-dismiss after 15s — a nudge is only useful in the
+            // moment; leaving stale ones on screen would clutter the
+            // live view during a long call.
+            setTimeout(() => {
+              setNudges(prev => prev.filter(n => n.id !== id))
+            }, 15000)
           }
         } catch {
           console.error('Received malformed message from live transcription server')
@@ -175,5 +186,5 @@ export function useLiveTranscription({ token, meetingId }) {
     setStatus(prev => (prev === 'error' ? 'error' : 'stopped'))
   }, [])
 
-  return { start, stop, status, segments, error }
+  return { start, stop, status, segments, nudges, error }
 }
