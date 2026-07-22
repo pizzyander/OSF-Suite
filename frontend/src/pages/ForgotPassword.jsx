@@ -1,17 +1,34 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { api } from '../api'
+import { validateEmail } from '../validation'
 
 export default function ForgotPassword() {
-  const [email, setEmail]   = useState('')
-  const [sent, setSent]     = useState(false)
-  const [error, setError]   = useState('')
+  const [email, setEmail]     = useState('')
+  const [sent, setSent]       = useState(false)
+  const [error, setError]     = useState('')
+  const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
   const submit = async (e) => {
     e.preventDefault()
-    if (!email) { setError('Enter your email'); return }
-    // Placeholder — wire to a real reset endpoint when ready
-    setSent(true)
+    const emailError = validateEmail(email)
+    if (emailError) { setError(emailError); return }
+
+    setLoading(true)
+    setError('')
+    try {
+      await api.forgotPassword(email)
+      // The backend always returns the same success message whether or
+      // not the account exists — see forgot_password() in
+      // verification_routes.py — so this branch runs regardless, by
+      // design, rather than confirming/denying a real account exists.
+      setSent(true)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -29,7 +46,9 @@ export default function ForgotPassword() {
             <input style={s.input} type="email" placeholder="Email"
               value={email} onChange={e => setEmail(e.target.value)} required />
             {error && <p style={s.error}>{error}</p>}
-            <button style={s.btn}>Send reset link</button>
+            <button style={s.btn} disabled={loading}>
+              {loading ? 'Sending...' : 'Send reset link'}
+            </button>
           </form>
         )}
         <div style={s.links}>

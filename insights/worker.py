@@ -8,6 +8,7 @@ from datetime import datetime
 from sqlalchemy import select
 from botocore.config import Config
 from db import init_db, AsyncSessionLocal, Meeting, Agent
+from mailer import send_meeting_ready_email
 from db_context import CompanyContext
 from embeddings import similarity_search
 from reconciler import reconciler_loop
@@ -442,6 +443,22 @@ async def process_message_analysis(meeting_id: str):
             "insights": json.dumps(insights.get("meeting_intelligence", {})),
             "coaching": json.dumps(insights.get("coaching", {})),
         })
+
+    # Notify the owner their analysis is ready — non-fatal. A failed send
+    # here shouldn't mark the meeting as failed; the report is genuinely
+    # done and sitting in the app either way, the user just doesn't get
+    # pinged about it. Covers BOTH live and manually-uploaded meetings,
+    # since this function is the one place status flips to "done" for
+    # either path.
+    try:
+        async with AsyncSessionLocal() as db:
+            agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
+            owner = agent_result.scalar_one_or_none()
+        if owner:
+            summary = insights.get("meeting_intelligence", {}).get("summary")
+            await asyncio.to_thread(send_meeting_ready_email, owner.email, owner.name, meeting_id, summary)
+    except Exception as e:
+        print(f"Meeting-ready email failed (non-fatal) for meeting={meeting_id}: {e}")
 
     print(f"Meeting {meeting_id} completed successfully")
 

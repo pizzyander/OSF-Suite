@@ -22,11 +22,12 @@ from auth import (
     hash_password, verify_password,
     create_access_token, create_refresh_token, decode_token
 )
+from verification_routes import router as verification_router
 
 # At the top with other imports
 from context_routes import router as context_router
 from live_routes import router as live_router
-
+from mailer import send_verification_email
 
 REDIS_URL       = os.getenv("REDIS_URL", "redis://redis:6379")
 WHISPER_URL     = os.getenv("WHISPER_URL", "http://whisper:8000")
@@ -77,6 +78,7 @@ app.include_router(context_router)
 app.include_router(live_router)
 app.include_router(onboarding_router)
 app.include_router(manager_router)
+app.include_router(verification_router)
 
 @app.on_event("startup")
 async def startup():
@@ -108,7 +110,9 @@ async def register(request: Request, payload: dict, db: AsyncSession = Depends(g
     )
     db.add(agent)
     await db.commit()
-
+    verify_token = create_email_verification_token(agent.id)
+    await asyncio.to_thread(send_verification_email, agent.email, agent.name, verify_token)
+ 
     access_token  = create_access_token(agent.id)
     refresh_token = create_refresh_token(agent.id)
 
@@ -151,6 +155,10 @@ async def login(request: Request, payload: dict, db: AsyncSession = Depends(get_
         "expires_in_minutes": int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
     }
 
+# Replace the existing /agents/refresh in main.py with this — the only
+# change is issuing (and returning) a NEW refresh token on every use,
+# instead of keeping the original one alive for its whole fixed lifetime.
+# This is what actually makes sessions "extend" for an active user.
 
 @app.post("/agents/refresh")
 async def refresh_token(payload: dict, db: AsyncSession = Depends(get_session)):
@@ -167,12 +175,15 @@ async def refresh_token(payload: dict, db: AsyncSession = Depends(get_session)):
         raise HTTPException(status_code=401, detail="Agent not found or inactive")
 
     access_token = create_access_token(agent.id)
+    new_refresh_token = create_refresh_token(agent.id)  # rotation — old one still technically
+                                                          # valid until it expires naturally, but
+                                                          # the frontend immediately overwrites it
     return {
         "access_token": access_token,
+        "refresh_token": new_refresh_token,
         "token_type": "bearer",
-        "expires_in_minutes": int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
+        "expires_in_minutes": ACCESS_EXPIRE,
     }
-
 
 # -- Agent routes (protected) -------------------------------------------------
 

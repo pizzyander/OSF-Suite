@@ -4,6 +4,8 @@ import { setTokenRefreshHandler, api } from './api'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import ForgotPassword from './pages/ForgotPassword'
+import ResetPassword from './pages/ResetPassword'
+import VerifyEmail from './pages/VerifyEmail'
 import Dashboard from './pages/Dashboard'
 import Meeting from './pages/Meeting'
 import MeetingDetail from './pages/MeetingDetail'
@@ -86,14 +88,34 @@ export default function App() {
     loadProfile(token) // re-fetch so onboarding_completed reflects true everywhere
   }
 
-  // /join is public — someone previewing an invite may not be logged in
-  // yet, so it must render before the token/profile gate below.
+  // /join, /reset-password, and /verify-email are all public-ish routes —
+  // someone may not be logged in yet (join, verify) or may be resetting
+  // a password specifically BECAUSE they can't log in — so all three
+  // render before the token/profile gate below, not after it.
   const isJoinRoute = window.location.pathname === '/join'
+  const isResetPasswordRoute = window.location.pathname === '/reset-password'
+  const isVerifyEmailRoute = window.location.pathname === '/verify-email'
 
   if (isJoinRoute) {
     return (
       <Routes>
         <Route path="/join" element={<JoinOrg token={token} onAccepted={() => loadProfile(token)} />} />
+      </Routes>
+    )
+  }
+
+  if (isResetPasswordRoute) {
+    return (
+      <Routes>
+        <Route path="/reset-password" element={<ResetPassword />} />
+      </Routes>
+    )
+  }
+
+  if (isVerifyEmailRoute) {
+    return (
+      <Routes>
+        <Route path="/verify-email" element={<VerifyEmail />} />
       </Routes>
     )
   }

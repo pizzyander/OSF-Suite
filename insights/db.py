@@ -41,6 +41,7 @@ class Agent(Base):
     hashed_password = Column(String, nullable=True)
     api_key         = Column(String, unique=True, nullable=True, index=True)
     is_active       = Column(Boolean, default=True)
+    email_verified  = Column(Boolean, default=False)
     created_at      = Column(DateTime, default=datetime.utcnow)
 
     # -- Organization membership (all nullable — a null org_id means a

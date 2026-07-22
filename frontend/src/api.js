@@ -1,6 +1,7 @@
 const BASE = import.meta.env.VITE_API_URL || ''
 
 let refreshPromise = null
+
 // A wrapper around fetch() that automatically adds the Authorization header
 // and handles 401 responses by trying to refresh the access token once.
 async function request(method, path, body, token) {
@@ -25,13 +26,19 @@ async function request(method, path, body, token) {
   return res.json()
 }
 
-//setting-up a callback to notify React when the token is refreshed or invalidated
+// Setting up a callback to notify React when the token is refreshed or invalidated.
 let onTokenRefreshed = null
 
 export function setTokenRefreshHandler(fn) {
   onTokenRefreshed = fn
 }
+
 // Refresh the access token using the refresh token stored in localStorage.
+// ROTATION: the backend now returns a NEW refresh_token on every call (see
+// /agents/refresh in main.py), not just a new access token — so an active
+// user's session effectively never expires as long as they use the app at
+// least once within REFRESH_EXPIRE days. We must store that new refresh
+// token here too, or the rotation on the backend accomplishes nothing.
 async function refreshAccessToken() {
   const storedRefresh = localStorage.getItem('osf_refresh_token')
   if (!storedRefresh) return null
@@ -46,6 +53,9 @@ async function refreshAccessToken() {
       .then(data => {
         if (data?.access_token) {
           localStorage.setItem('osf_token', data.access_token)
+          if (data.refresh_token) {
+            localStorage.setItem('osf_refresh_token', data.refresh_token)
+          }
           onTokenRefreshed?.(data.access_token) // tell React
           return data.access_token
         }
@@ -59,117 +69,52 @@ async function refreshAccessToken() {
   }
   return refreshPromise
 }
-// The main API object that the rest of the app uses.
 
+// The main API object that the rest of the app uses.
 export const api = {
+  // -- Auth --------------------------------------------------------------------
   login:          (email, password)         => request('POST', '/agents/login',    { email, password }),
   register:       (name, email, pass)       => request('POST', '/agents/register', { name, email, password: pass }),
   me:             (token)                   => request('GET',  '/agents/me',       null, token),
   changePassword: (token, old_password, new_password) =>
                                                request('PUT',  '/agents/password', { old_password, new_password }, token),
 
+  // -- Email verification & password reset --------------------------------------
+  verifyEmail:         (token)              => request('POST', '/agents/verify-email', { token }, null),
+  resendVerification:  (token)              => request('POST', '/agents/resend-verification', null, token),
+  forgotPassword:      (email)              => request('POST', '/agents/forgot-password', { email }, null),
+  resetPassword:       (token, new_password) => request('POST', '/agents/reset-password', { token, new_password }, null),
+
+  // -- Onboarding ----------------------------------------------------------------
+  saveOnboarding: (token, fields) => request('PUT', '/agents/onboarding', fields, token),
+
+  // -- Organizations ---------------------------------------------------------------
+  createOrganization: (token, name) => request('POST', '/organizations', { name }, token),
+  createInvite: (token, email, role, manager_id = null) =>
+    request('POST', '/organizations/invites', { email, role, manager_id }, token),
+  listInvites:  (token)             => request('GET', '/organizations/invites', null, token),
+  revokeInvite: (token, invite_id)  => request('DELETE', `/organizations/invites/${invite_id}`, null, token),
+  listMembers:  (token)             => request('GET', '/organizations/members', null, token),
+  updateMember: (token, agent_id, updates) => request('PATCH', `/organizations/members/${agent_id}`, updates, token),
+
+  // -- Invite acceptance (the /join?token=... landing page) -----------------------
+  // previewInvite is PUBLIC — no token/auth needed, callable before login.
+  previewInvite: (inviteToken)        => request('GET', `/invites/${inviteToken}`, null, null),
+  acceptInvite:  (token, inviteToken) => request('POST', `/invites/${inviteToken}/accept`, null, token),
+
+  // -- Manager dashboard -------------------------------------------------------------
+  getTeamMeetings: (token, limit = 50) => request('GET', `/team/meetings?limit=${limit}`, null, token),
+  getTeamStats:    (token)             => request('GET', '/team/stats', null, token),
+
+  // -- Meetings ------------------------------------------------------------------------
   startMeeting:   (token)                   => request('POST', '/meetings/start',  null, token),
   endMeeting:     (token, id, total_chunks) => request('POST', `/meetings/${id}/end`, { total_chunks }, token),
   getResults:     (token, id)               => request('GET',  `/meetings/${id}/results`, null, token),
   getMeetings:    (token)                   => request('GET',  '/meetings?limit=20', null, token),
   getGrowth:      (token)                   => request('GET',  '/growth',          null, token),
 
-  // -- Onboarding ------------------------------------------------------------
-  saveOnboarding: (token, fields) =>
-    request('PUT', '/agents/onboarding', fields, token),
-
-  // -- Organizations -----------------------------------------------------------
-  createOrganization: (token, name) =>
-    request('POST', '/organizations', { name }, token),
-
-  createInvite: (token, email, role, manager_id = null) =>
-    request('POST', '/organizations/invites', { email, role, manager_id }, token),
-
-  listInvites: (token) =>
-    request('GET', '/organizations/invites', null, token),
-
-  revokeInvite: (token, invite_id) =>
-    request('DELETE', `/organizations/invites/${invite_id}`, null, token),
-
-  // -- Invite acceptance (the /join?token=... landing page) -------------------
-  // previewInvite is PUBLIC — no token/auth needed, callable before login.
-  previewInvite: (inviteToken) =>
-    request('GET', `/invites/${inviteToken}`, null, null),
-
-  acceptInvite: (token, inviteToken) =>
-    request('POST', `/invites/${inviteToken}/accept`, null, token),
-
-  listMembers: (token) =>
-    request('GET', '/organizations/members', null, token),
-
-  updateMember: (token, agent_id, updates) =>
-    request('PATCH', `/organizations/members/${agent_id}`, updates, token),
-
-  // -- Manager dashboard -----------------------------------------------------
-  getTeamMeetings: (token, limit = 50) =>
-    request('GET', `/team/meetings?limit=${limit}`, null, token),
-
-  getTeamStats: (token) =>
-    request('GET', '/team/stats', null, token),
-
-  // -- Onboarding ------------------------------------------------------------
-  saveOnboarding: (token, fields) =>
-    request('PUT', '/agents/onboarding', fields, token),
-
-  // -- Organizations -----------------------------------------------------------
-  createOrganization: (token, name) =>
-    request('POST', '/organizations', { name }, token),
-
-  createInvite: (token, email, role, manager_id = null) =>
-    request('POST', '/organizations/invites', { email, role, manager_id }, token),
-
-  listInvites: (token) =>
-    request('GET', '/organizations/invites', null, token),
-
-  revokeInvite: (token, invite_id) =>
-    request('DELETE', `/organizations/invites/${invite_id}`, null, token),
-
-  // -- Invite acceptance (the /join?token=... landing page) -------------------
-  // previewInvite is PUBLIC — no token/auth needed, callable before login.
-  previewInvite: (inviteToken) =>
-    request('GET', `/invites/${inviteToken}`, null, null),
-
-  acceptInvite: (token, inviteToken) =>
-    request('POST', `/invites/${inviteToken}/accept`, null, token),
-
-  listMembers: (token) =>
-    request('GET', '/organizations/members', null, token),
-
-  updateMember: (token, agent_id, updates) =>
-    request('PATCH', `/organizations/members/${agent_id}`, updates, token),
-  
-  // -- Onboarding ------------------------------------------------------------
-  saveOnboarding: (token, fields) =>
-    request('PUT', '/agents/onboarding', fields, token),
-
-  // -- Organizations -----------------------------------------------------------
-  createOrganization: (token, name) =>
-    request('POST', '/organizations', { name }, token),
-
-  createInvite: (token, email, role, manager_id = null) =>
-    request('POST', '/organizations/invites', { email, role, manager_id }, token),
-
-  listInvites: (token) =>
-    request('GET', '/organizations/invites', null, token),
-
-  revokeInvite: (token, invite_id) =>
-    request('DELETE', `/organizations/invites/${invite_id}`, null, token),
-
-  // -- Invite acceptance (the /join?token=... landing page) -------------------
-  // previewInvite is PUBLIC — no token/auth needed, callable before login.
-  previewInvite: (inviteToken) =>
-    request('GET', `/invites/${inviteToken}`, null, null),
-
-  acceptInvite: (token, inviteToken) =>
-    request('POST', `/invites/${inviteToken}/accept`, null, token),
-
-  getUploadUrl:   (token, id, filename)     => request('GET',
-    `/meetings/${id}/upload-url?filename=${encodeURIComponent(filename)}`, null, token),
+  getUploadUrl: (token, id, filename) =>
+    request('GET', `/meetings/${id}/upload-url?filename=${encodeURIComponent(filename)}`, null, token),
 
   uploadChunk: (token, meeting_id, s3_key) => {
     const fd = new FormData()
@@ -180,6 +125,7 @@ export const api = {
       body:    fd
     }).then(r => r.json())
   },
+
   uploadComplete: (token, meeting_id, s3_key, chunk_seconds = 30) => {
     const fd = new FormData()
     fd.append('s3_key', s3_key)
@@ -193,14 +139,16 @@ export const api = {
       return r.json()
     })
   },
-  getContext:        (token)        => request('GET',    '/agents/context',      null, token),
-  deleteContext:     (token)        => request('DELETE', '/agents/context',      null, token),
-  uploadContextText: (token, text)  => request('POST',   '/agents/context/text', { text }, token),
+
+  // -- Company context ----------------------------------------------------------------
+  getContext:        (token)       => request('GET',    '/agents/context',      null, token),
+  deleteContext:     (token)       => request('DELETE', '/agents/context',      null, token),
+  uploadContextText: (token, text) => request('POST',   '/agents/context/text', { text }, token),
 
   uploadContextFile: (token, file) => {
     const fd = new FormData()
     fd.append('file', file)
-    return fetch(`${BASE}/agents/context/upload`, {   // ← missing ${BASE}
+    return fetch(`${BASE}/agents/context/upload`, {
       method:  'POST',
       headers: { Authorization: `Bearer ${token}` },
       body:    fd

@@ -83,6 +83,10 @@ async def create_invite(
     if not agent.org_id or agent.role != "admin":
         raise HTTPException(status_code=403, detail="Only an organization admin can send invites.")
 
+    org_result = await db.execute(select(Organization).where(Organization.id == agent.org_id))
+    org = org_result.scalar_one_or_none()
+    org_name_for_email = org.name if org else "your team"
+
     email = payload.get("email", "").strip().lower()
     role = payload.get("role", "member")
     manager_id = payload.get("manager_id")  # optional — only meaningful when role == "member"
@@ -146,11 +150,21 @@ async def create_invite(
 
     await db.commit()
 
+    invite_link = f"{FRONTEND_URL}/join?token={token}"
+
+    # Send the actual email now — this was previously just returned in the
+    # API response with nothing sending it anywhere. Non-fatal: if SES
+    # isn't configured or the send fails, the admin still gets the link
+    # back in this response and can share it manually.
+    import asyncio
+    from mailer import send_invite_email
+    await asyncio.to_thread(send_invite_email, email, org_name_for_email, agent.name, invite_link)
+
     return {
         "invite_id": invite.id,
         "email": invite.email,
         "role": invite.role,
-        "invite_link": f"{FRONTEND_URL}/join?token={token}",
+        "invite_link": invite_link,
         "expires_at": invite.expires_at,
     }
 

@@ -41,3 +41,6 @@ CREATE INDEX IF NOT EXISTS ix_company_context_org_id ON company_context (org_id)
 -- Note: existing rows in company_context will have org_id = NULL, which is
 -- correct — they were all individual-account uploads before this change,
 -- and NULL org_id is exactly what marks "personal context" going forward.
+
+-- -- Email verification (run once, same as everything else in this file) --
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;
