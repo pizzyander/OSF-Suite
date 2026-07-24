@@ -16,6 +16,7 @@ from auth import decode_token
 from embeddings import get_context_owner_id
 from nudge_triggers import classify_segment
 from nudge_engine import generate_event_nudge, generate_periodic_nudge
+from coaching_agent import get_winning_patterns_block
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -91,15 +92,7 @@ async def authenticate_ws(token: str, meeting_id: str) -> Agent | None:
         return agent_result.scalar_one_or_none()
 
 
-async def get_live_context(agent: Agent, redis_client: aioredis.Redis) -> str:
-    """
-    Fetches this agent's (or their org's) active company context, for
-    grounding nudges in real pricing/positioning instead of generic
-    advice — same Redis-first, Postgres-fallback pattern worker.py uses
-    for the post-call analysis, just without the RAG similarity search,
-    since nudge_engine trims to a fixed length itself rather than needing
-    query-specific retrieval.
-    """
+async def _get_live_context_base(agent: Agent, redis_client: aioredis.Redis) -> str:
     owner_id = get_context_owner_id(agent)
 
     try:
@@ -125,6 +118,28 @@ async def get_live_context(agent: Agent, redis_client: aioredis.Redis) -> str:
         logger.error(f"Postgres context fetch failed for owner={owner_id}: {e}")
 
     return ""
+
+
+async def get_live_context(agent: Agent, redis_client: aioredis.Redis) -> str:
+    """
+    Fetches this agent's (or their org's) active company context, for
+    grounding nudges in real pricing/positioning instead of generic
+    advice — same Redis-first, Postgres-fallback pattern worker.py uses
+    for the post-call analysis. Also appends proven winning techniques
+    from this scope's top-performing calls (coaching_agent.py), so live
+    nudges can reference real, team-proven language, not just pricing docs.
+    """
+    base_context = await _get_live_context_base(agent, redis_client)
+
+    try:
+        owner_id = get_context_owner_id(agent)
+        async with AsyncSessionLocal() as db:
+            winning_block = await get_winning_patterns_block(owner_id, db)
+    except Exception as e:
+        logger.error(f"Winning patterns fetch failed (non-fatal): {e}")
+        winning_block = ""
+
+    return base_context + winning_block
 
 
 async def finalize_meeting(meeting_id: str, final_segments: list[dict]):

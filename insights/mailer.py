@@ -79,7 +79,17 @@ def send_invite_email(to_email: str, org_name: str, invited_by_name: str, invite
     return _send(to_email, f"You've been invited to join {org_name} on OSF-Suite", html, text)
 
 
-def send_meeting_ready_email(to_email: str, name: str, meeting_id: str, summary: str | None = None) -> bool:
+def send_coaching_plan_email(to_email: str, name: str, plan_text: str) -> bool:
+    link = f"{FRONTEND_URL}/coaching"
+    formatted = plan_text.replace("\n", "<br>")
+    html = f"""
+    <p>Hi {name},</p>
+    <p>Here's your coaching plan based on your calls this week:</p>
+    <p>{formatted}</p>
+    <p><a href="{link}">View in app</a></p>
+    """
+    text = f"Hi {name},\n\nYour coaching plan for this week:\n\n{plan_text}\n\nView in app: {link}"
+    return _send(to_email, "Your weekly coaching plan", html, text)
     """
     Sent once a meeting's analysis finishes — from process_message_analysis()
     in worker.py, which is the single place status flips to "done" for BOTH

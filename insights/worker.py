@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import os
 import json
 import httpx
@@ -8,7 +8,10 @@ from datetime import datetime
 from sqlalchemy import select
 from botocore.config import Config
 from db import init_db, AsyncSessionLocal, Meeting, Agent
-from mailer import send_meeting_ready_email
+from db_coaching import CoachingPlan, WinningPattern
+from mailer import send_meeting_ready_email, send_coaching_plan_email
+from coaching_agent import run_gap_analysis, run_winning_pattern_extraction, get_winning_patterns_block
+import uuid
 from db_context import CompanyContext
 from embeddings import similarity_search
 from reconciler import reconciler_loop
@@ -210,7 +213,24 @@ async def resolve_context_scope(agent_id: str):
 
 async def get_agent_context_rag(agent_id: str, rag_query: str) -> str:
     owner_id, scope_filter = await resolve_context_scope(agent_id)
+    base_context = await _get_agent_context_rag_base(owner_id, scope_filter, rag_query)
 
+    # Append proven winning techniques from this scope's top-performing
+    # calls, if any exist yet — closes the loop between the gap-analysis/
+    # winning-pattern pipeline (coaching_agent.py) and the actual coaching
+    # output every meeting gets. A brand-new team with no wins recorded
+    # yet just gets an empty string here — harmless, not an error.
+    try:
+        async with AsyncSessionLocal() as db:
+            winning_block = await get_winning_patterns_block(owner_id, db)
+    except Exception as e:
+        print(f"Winning patterns fetch failed (non-fatal) for owner={owner_id}: {e}")
+        winning_block = ""
+
+    return base_context + winning_block
+
+
+async def _get_agent_context_rag_base(owner_id: str, scope_filter, rag_query: str) -> str:
     if rag_query:
         try:
             async with AsyncSessionLocal() as db:
@@ -463,6 +483,55 @@ async def process_message_analysis(meeting_id: str):
     print(f"Meeting {meeting_id} completed successfully")
 
 
+DAILY_COACHING_INTERVAL_SECONDS = 24 * 60 * 60
+
+
+async def daily_coaching_loop():
+    """
+    Runs once every 24 hours from worker startup — a simple fixed
+    interval, not scheduled to a specific wall-clock time. Good enough
+    for v1; swap for a real cron-style scheduler later if a specific
+    time-of-day (e.g. "every morning at 7am") ever matters.
+
+    For every active agent: runs gap analysis, stores + emails a
+    coaching plan if one was generated; runs winning-pattern extraction,
+    stores any techniques found. Each agent's failure is caught and
+    logged individually — one bad run shouldn't skip the whole batch.
+    """
+    while True:
+        await asyncio.sleep(DAILY_COACHING_INTERVAL_SECONDS)
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(select(Agent).where(Agent.is_active == True))
+                agents = result.scalars().all()
+
+            print(f"Daily coaching run starting for {len(agents)} agents")
+
+            for agent in agents:
+                try:
+                    plan = await run_gap_analysis(agent.id)
+                    if plan:
+                        async with AsyncSessionLocal() as db:
+                            db.add(CoachingPlan(id=str(uuid.uuid4()), **plan))
+                            await db.commit()
+                        await asyncio.to_thread(
+                            send_coaching_plan_email, agent.email, agent.name, plan["plan_text"]
+                        )
+
+                    patterns = await run_winning_pattern_extraction(agent.id)
+                    if patterns:
+                        async with AsyncSessionLocal() as db:
+                            for p in patterns:
+                                db.add(WinningPattern(id=str(uuid.uuid4()), **p))
+                            await db.commit()
+                except Exception as e:
+                    print(f"Daily coaching run failed for agent={agent.id} (non-fatal): {e}")
+
+            print("Daily coaching run complete")
+        except Exception as e:
+            print(f"Daily coaching loop error: {e}")
+
+
 async def run():
     await init_db()
     sqs = await asyncio.to_thread(boto3.client, "sqs", region_name=AWS_REGION)
@@ -474,6 +543,7 @@ async def run():
     # for live-transcription sessions abandoned by a crashed process and
     # finalizes whatever transcript was captured before it was lost.
     asyncio.create_task(reconciler_loop(REDIS_URL))
+    asyncio.create_task(daily_coaching_loop())
 
     while True:
         try:

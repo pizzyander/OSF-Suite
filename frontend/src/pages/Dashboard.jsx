@@ -68,6 +68,9 @@ export default function Dashboard({ token, profile, onLogout }) {
           <button style={s.btnPrimary} onClick={() => navigate('/meeting')}>
             + New Meeting
           </button>
+          <button style={s.btnGhost} onClick={() => navigate('/coaching')}>
+            Coaching
+          </button>
           {(agent?.role === 'admin' || agent?.role === 'manager') && (
             <button style={s.btnGhost} onClick={() => navigate('/manager')}>
               Team Performance

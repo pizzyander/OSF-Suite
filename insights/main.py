@@ -28,6 +28,7 @@ from verification_routes import router as verification_router
 from context_routes import router as context_router
 from live_routes import router as live_router
 from mailer import send_verification_email
+from coaching_routes import router as coaching_router
 
 REDIS_URL       = os.getenv("REDIS_URL", "redis://redis:6379")
 WHISPER_URL     = os.getenv("WHISPER_URL", "http://whisper:8000")
@@ -79,6 +80,8 @@ app.include_router(live_router)
 app.include_router(onboarding_router)
 app.include_router(manager_router)
 app.include_router(verification_router)
+app.include_router(coaching_router)
+
 
 @app.on_event("startup")
 async def startup():

@@ -1,4 +1,4 @@
-﻿import os
+import os
 from datetime import datetime
 from sqlalchemy import Column, String, Text, DateTime, JSON, Integer, Boolean
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -26,6 +26,8 @@ from db_context import CompanyContext  # noqa: F401
 
 # Register Organization + Invite with Base metadata
 from db_org import Organization, Invite  # noqa: F401
+
+from db_coaching import CoachingPlan, WinningPattern  # noqa: F401
 
 # Register ContextChunk with Base metadata — avoids circular import
 from db_vectors import init_vectors
