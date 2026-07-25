@@ -4,6 +4,7 @@ paystack_client.py — thin wrapper around the Paystack REST API.
 import os
 import hmac
 import hashlib
+import logging
 import httpx
 
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY", "")
@@ -24,6 +25,16 @@ _headers = {
 async def _request(method: str, path: str, json: dict | None = None) -> dict:
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.request(method, f"{PAYSTACK_BASE_URL}{path}", headers=_headers, json=json)
+    if resp.status_code >= 400:
+        # Paystack's actual explanation lives in the response body — a bare
+        # raise_for_status() only gives a generic "400 Bad Request" with no
+        # way to tell "unsupported currency" apart from "invalid email"
+        # apart from anything else. Surface the real message before raising.
+        try:
+            body = resp.json()
+        except Exception:
+            body = resp.text
+        logging.getLogger(__name__).error(f"Paystack {method} {path} -> {resp.status_code}: {body}")
     resp.raise_for_status()
     return resp.json()
 
