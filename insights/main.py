@@ -20,15 +20,16 @@ from db import init_db, get_session, Agent, Meeting
 from auth import (
     get_current_agent, generate_api_key,
     hash_password, verify_password,
-    create_access_token, create_refresh_token, decode_token
+    create_access_token, create_refresh_token, decode_token, create_email_verification_token
 )
 from verification_routes import router as verification_router
-
 # At the top with other imports
 from context_routes import router as context_router
 from live_routes import router as live_router
 from mailer import send_verification_email
 from coaching_routes import router as coaching_router
+from billing_routes import router as billing_router
+from billing_guard import require_active_access
 
 REDIS_URL       = os.getenv("REDIS_URL", "redis://redis:6379")
 WHISPER_URL     = os.getenv("WHISPER_URL", "http://whisper:8000")
@@ -37,7 +38,7 @@ OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL", "phi3:mini")
 SQS_QUEUE_URL   = os.getenv("SQS_QUEUE_URL", "")
 S3_BUCKET       = os.getenv("S3_BUCKET", "")
 DIARIZATION_URL = os.getenv("DIARIZATION_URL", "http://diarization:8002")
-
+ACCESS_EXPIRE  = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
 
 def get_agent_id(request: Request):
     auth = request.headers.get("Authorization", "")
@@ -81,7 +82,7 @@ app.include_router(onboarding_router)
 app.include_router(manager_router)
 app.include_router(verification_router)
 app.include_router(coaching_router)
-
+app.include_router(billing_router)
 
 @app.on_event("startup")
 async def startup():
@@ -215,7 +216,8 @@ async def change_password(
 async def start_meeting(
     request: Request,
     agent: Agent = Depends(get_current_agent),
-    db: AsyncSession = Depends(get_session)
+    db: AsyncSession = Depends(get_session),
+    _access = Depends(require_active_access),
 ):
     meeting_id = str(uuid.uuid4())
     meeting = Meeting(id=meeting_id, user_id=agent.id)
@@ -238,7 +240,8 @@ async def get_upload_url(
     meeting_id: str,
     filename: str,
     agent: Agent = Depends(get_current_agent),
-    db: AsyncSession = Depends(get_session)
+    db: AsyncSession = Depends(get_session),
+    _access = Depends(require_active_access),
 ):
     result = await db.execute(
         select(Meeting)
@@ -282,6 +285,7 @@ async def upload_complete(
     chunk_seconds: int = Form(30),
     agent: Agent = Depends(get_current_agent),
     db: AsyncSession = Depends(get_session),
+    _access = Depends(require_active_access),
 ):
     """
     Manual upload path (full recording, not the live streaming flow).
@@ -400,7 +404,8 @@ async def upload_chunk(
     meeting_id: str,
     s3_key: str = Form(...),
     agent: Agent = Depends(get_current_agent),
-    db: AsyncSession = Depends(get_session)
+    db: AsyncSession = Depends(get_session),
+    _access = Depends(require_active_access),
 ):
     result = await db.execute(
         select(Meeting)

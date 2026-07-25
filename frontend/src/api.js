@@ -2,8 +2,6 @@ const BASE = import.meta.env.VITE_API_URL || ''
 
 let refreshPromise = null
 
-// A wrapper around fetch() that automatically adds the Authorization header
-// and handles 401 responses by trying to refresh the access token once.
 async function request(method, path, body, token) {
   const headers = { 'Content-Type': 'application/json' }
   if (token) headers['Authorization'] = `Bearer ${token}`
@@ -15,7 +13,7 @@ async function request(method, path, body, token) {
   if (res.status === 401 && token) {
     const newAccessToken = await refreshAccessToken()
     if (newAccessToken) {
-      return request(method, path, body, newAccessToken) // retry once
+      return request(method, path, body, newAccessToken)
     }
   }
 
@@ -26,17 +24,12 @@ async function request(method, path, body, token) {
   return res.json()
 }
 
-// Setting up a callback to notify React when the token is refreshed or invalidated.
 let onTokenRefreshed = null
 
 export function setTokenRefreshHandler(fn) {
   onTokenRefreshed = fn
 }
 
-// Refresh the access token using the refresh token stored in localStorage.
-// ROTATION: the backend returns a NEW refresh_token on every call, so an
-// active user's session effectively never expires as long as they use the
-// app at least once within REFRESH_EXPIRE days.
 async function refreshAccessToken() {
   const storedRefresh = localStorage.getItem('osf_refresh_token')
   if (!storedRefresh) return null
@@ -68,7 +61,6 @@ async function refreshAccessToken() {
   return refreshPromise
 }
 
-// The main API object that the rest of the app uses.
 export const api = {
   // -- Auth --------------------------------------------------------------------
   login:          (email, password)         => request('POST', '/agents/login',    { email, password }),
@@ -86,6 +78,10 @@ export const api = {
   // -- Onboarding ----------------------------------------------------------------
   saveOnboarding: (token, fields) => request('PUT', '/agents/onboarding', fields, token),
 
+  // -- Billing ---------------------------------------------------------------------
+  startTrial:    (token, plan, seats = null) => request('POST', '/billing/start-trial', { plan, seats }, token),
+  billingStatus: (token)                     => request('GET', '/billing/status', null, token),
+
   // -- Organizations ---------------------------------------------------------------
   createOrganization: (token, name) => request('POST', '/organizations', { name }, token),
   createInvite: (token, email, role, manager_id = null) =>
@@ -95,7 +91,7 @@ export const api = {
   listMembers:  (token)             => request('GET', '/organizations/members', null, token),
   updateMember: (token, agent_id, updates) => request('PATCH', `/organizations/members/${agent_id}`, updates, token),
 
-  // -- Invite acceptance (the /join?token=... landing page) -----------------------
+  // -- Invite acceptance -----------------------------------------------------------
   previewInvite: (inviteToken)        => request('GET', `/invites/${inviteToken}`, null, null),
   acceptInvite:  (token, inviteToken) => request('POST', `/invites/${inviteToken}/accept`, null, token),
 

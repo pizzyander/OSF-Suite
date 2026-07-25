@@ -15,6 +15,9 @@ import JoinOrg from './pages/JoinOrg'
 import Team from './pages/Team'
 import ManagerDashboard from './pages/ManagerDashboard'
 import Coaching from './pages/Coaching'
+import Pricing from './pages/Pricing'
+import BillingCallback from './pages/BillingCallback'
+import Billing from './pages/Billing'
 
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem('osf_token'))
@@ -95,6 +98,7 @@ export default function App() {
   // render before the token/profile gate below, not after it.
   const isJoinRoute = window.location.pathname === '/join'
   const isResetPasswordRoute = window.location.pathname === '/reset-password'
+  const isBillingCallbackRoute = window.location.pathname === '/billing/callback'
   const isVerifyEmailRoute = window.location.pathname === '/verify-email'
 
   if (isJoinRoute) {
@@ -109,6 +113,14 @@ export default function App() {
     return (
       <Routes>
         <Route path="/reset-password" element={<ResetPassword />} />
+      </Routes>
+    )
+  }
+
+  if (isBillingCallbackRoute) {
+    return (
+      <Routes>
+        <Route path="/billing/callback" element={<BillingCallback token={token} />} />
       </Routes>
     )
   }
@@ -154,6 +166,8 @@ export default function App() {
       <Route path="/team"            element={<Team token={token} profile={profile} />} />
       <Route path="/manager"         element={<ManagerDashboard token={token} profile={profile} />} />
       <Route path="/coaching"        element={<Coaching token={token} />} />
+      <Route path="/pricing"         element={<Pricing token={token} profile={profile} />} />
+      <Route path="/billing"         element={<Billing token={token} profile={profile} />} />
       <Route path="/onboarding"      element={<Onboarding token={token} onComplete={handleOnboardingComplete} />} />
       <Route path="*"                element={<Navigate to="/" />} />
     </Routes>

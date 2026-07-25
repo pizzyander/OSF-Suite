@@ -89,7 +89,26 @@ async def authenticate_ws(token: str, meeting_id: str) -> Agent | None:
             return None
 
         agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
-        return agent_result.scalar_one_or_none()
+        agent = agent_result.scalar_one_or_none()
+        if not agent:
+            return None
+
+        # Billing gate — WebSocket routes can't use FastAPI's Depends()
+        # pattern the way HTTP routes do (see billing_guard.py for that
+        # version), so this is checked manually here instead. A live call
+        # is exactly the kind of usage that should stop the instant a
+        # trial/subscription expires — checked BEFORE accept() would be
+        # nice, but agent isn't known that early; the caller closes the
+        # connection immediately after this returns None either way.
+        from db_billing import Subscription
+        owner_id = agent.org_id or agent.id
+        sub_result = await db.execute(select(Subscription).where(Subscription.owner_id == owner_id))
+        sub = sub_result.scalar_one_or_none()
+        if not sub or not sub.current_period_end or sub.current_period_end <= datetime.utcnow():
+            logger.warning(f"Live auth blocked for meeting={meeting_id}: no active subscription for owner={owner_id}")
+            return None
+
+        return agent
 
 
 async def _get_live_context_base(agent: Agent, redis_client: aioredis.Redis) -> str:

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../api'
+import { api } from '../../api'
 
 export default function Dashboard({ token, profile, onLogout }) {
   const [meetings, setMeetings] = useState([])
@@ -70,6 +70,12 @@ export default function Dashboard({ token, profile, onLogout }) {
           </button>
           <button style={s.btnGhost} onClick={() => navigate('/coaching')}>
             Coaching
+          </button>
+          <button style={s.btnGhost} onClick={() => navigate('/pricing')}>
+            Billing
+          </button>
+          <button style={s.btnGhost} onClick={() => navigate('/billing')}>
+            Billing
           </button>
           {(agent?.role === 'admin' || agent?.role === 'manager') && (
             <button style={s.btnGhost} onClick={() => navigate('/manager')}>

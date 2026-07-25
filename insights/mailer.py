@@ -1,5 +1,5 @@
 """
-email.py — transactional email via Amazon SES.
+mailer.py — transactional email via Amazon SES.
 
 Every send is non-fatal: if SES isn't configured or a send fails, this
 logs the error and returns False rather than raising — the same pattern
@@ -45,6 +45,10 @@ def _send(to_email: str, subject: str, html_body: str, text_body: str) -> bool:
         return False
 
 
+# ---------------------------------------------------------------------------
+# Account / auth
+# ---------------------------------------------------------------------------
+
 def send_verification_email(to_email: str, name: str, token: str) -> bool:
     link = f"{FRONTEND_URL}/verify-email?token={token}"
     html = f"""
@@ -79,17 +83,11 @@ def send_invite_email(to_email: str, org_name: str, invited_by_name: str, invite
     return _send(to_email, f"You've been invited to join {org_name} on OSF-Suite", html, text)
 
 
-def send_coaching_plan_email(to_email: str, name: str, plan_text: str) -> bool:
-    link = f"{FRONTEND_URL}/coaching"
-    formatted = plan_text.replace("\n", "<br>")
-    html = f"""
-    <p>Hi {name},</p>
-    <p>Here's your coaching plan based on your calls this week:</p>
-    <p>{formatted}</p>
-    <p><a href="{link}">View in app</a></p>
-    """
-    text = f"Hi {name},\n\nYour coaching plan for this week:\n\n{plan_text}\n\nView in app: {link}"
-    return _send(to_email, "Your weekly coaching plan", html, text)
+# ---------------------------------------------------------------------------
+# Meetings / coaching
+# ---------------------------------------------------------------------------
+
+def send_meeting_ready_email(to_email: str, name: str, meeting_id: str, summary: str | None = None) -> bool:
     """
     Sent once a meeting's analysis finishes — from process_message_analysis()
     in worker.py, which is the single place status flips to "done" for BOTH
@@ -106,3 +104,76 @@ def send_coaching_plan_email(to_email: str, name: str, plan_text: str) -> bool:
     """
     text = f"Hi {name},\n\nYour meeting analysis is ready.{summary_text}\n\nView it here: {link}"
     return _send(to_email, "Your meeting analysis is ready", html, text)
+
+
+def send_coaching_plan_email(to_email: str, name: str, plan_text: str) -> bool:
+    link = f"{FRONTEND_URL}/coaching"
+    formatted = plan_text.replace("\n", "<br>")
+    html = f"""
+    <p>Hi {name},</p>
+    <p>Here's your coaching plan based on your calls this week:</p>
+    <p>{formatted}</p>
+    <p><a href="{link}">View in app</a></p>
+    """
+    text = f"Hi {name},\n\nYour coaching plan for this week:\n\n{plan_text}\n\nView in app: {link}"
+    return _send(to_email, "Your weekly coaching plan", html, text)
+
+
+# ---------------------------------------------------------------------------
+# Billing
+# ---------------------------------------------------------------------------
+
+def send_trial_started_email(to_email: str, name: str, plan_label: str, trial_end_date: str) -> bool:
+    html = f"""
+    <p>Hi {name},</p>
+    <p>Your 7-day free trial is live — you selected the <strong>{plan_label}</strong> plan.</p>
+    <p>Your card is saved but you won't be charged until your trial ends on <strong>{trial_end_date}</strong>.</p>
+    """
+    text = f"Hi {name},\n\nYour 7-day free trial is live ({plan_label}). You won't be charged until {trial_end_date}."
+    return _send(to_email, "Your OSF-Suite trial has started", html, text)
+
+
+def send_trial_ending_soon_email(to_email: str, name: str, plan_label: str, amount_usd: float, charge_date: str) -> bool:
+    html = f"""
+    <p>Hi {name},</p>
+    <p>Your free trial ends in 2 days. Your card will be charged <strong>${amount_usd:.2f}</strong> for the
+    <strong>{plan_label}</strong> plan on <strong>{charge_date}</strong>.</p>
+    <p>No action needed if you'd like to continue — this is just a heads up.</p>
+    """
+    text = (f"Hi {name},\n\nYour trial ends in 2 days. ${amount_usd:.2f} will be charged for {plan_label} "
+            f"on {charge_date}. No action needed to continue.")
+    return _send(to_email, "Your OSF-Suite trial ends in 2 days", html, text)
+
+
+def send_renewal_receipt_email(to_email: str, name: str, plan_label: str, amount_usd: float, next_charge_date: str) -> bool:
+    html = f"""
+    <p>Hi {name},</p>
+    <p>Payment received — <strong>${amount_usd:.2f}</strong> for your <strong>{plan_label}</strong> plan.</p>
+    <p>Your next charge will be on <strong>{next_charge_date}</strong>.</p>
+    """
+    text = f"Hi {name},\n\nPayment received: ${amount_usd:.2f} for {plan_label}. Next charge: {next_charge_date}."
+    return _send(to_email, "Payment receipt — OSF-Suite", html, text)
+
+
+def send_payment_failed_email(to_email: str, name: str, grace_days_left: int) -> bool:
+    link = f"{FRONTEND_URL}/pricing"
+    html = f"""
+    <p>Hi {name},</p>
+    <p>We couldn't charge your card for your OSF-Suite subscription renewal.</p>
+    <p>Your access continues for now, but will pause in <strong>{grace_days_left} day(s)</strong> unless this is resolved.</p>
+    <p><a href="{link}">Update payment method</a></p>
+    """
+    text = (f"Hi {name},\n\nWe couldn't charge your card. Access pauses in {grace_days_left} day(s) "
+            f"unless resolved.\n\nUpdate payment: {link}")
+    return _send(to_email, "Action needed: payment failed", html, text)
+
+
+def send_access_expired_email(to_email: str, name: str) -> bool:
+    link = f"{FRONTEND_URL}/pricing"
+    html = f"""
+    <p>Hi {name},</p>
+    <p>Your OSF-Suite access has paused due to a payment issue we couldn't resolve.</p>
+    <p><a href="{link}">Reactivate your subscription</a></p>
+    """
+    text = f"Hi {name},\n\nYour access has paused due to a payment issue.\n\nReactivate: {link}"
+    return _send(to_email, "Your OSF-Suite access has paused", html, text)
