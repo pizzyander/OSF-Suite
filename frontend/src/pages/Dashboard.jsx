@@ -72,7 +72,7 @@ export default function Dashboard({ token, profile, onLogout }) {
             Coaching
           </button>
           <button style={s.btnGhost} onClick={() => navigate('/pricing')}>
-            Billing
+            Pricing
           </button>
           <button style={s.btnGhost} onClick={() => navigate('/billing')}>
             Billing

@@ -20,6 +20,7 @@ from db import get_session, Agent
 from db_context import CompanyContext
 from db import ContextChunk
 from auth import get_current_agent
+from billing_guard import require_active_access
 from extraction import extract, extract_from_raw_text, ExtractionError
 from embeddings import embed_and_store, get_context_owner_id
 
@@ -93,7 +94,8 @@ async def upload_context_file(
     request: Request,
     file: UploadFile = File(...),
     agent: Agent = Depends(get_current_agent),
-    db: AsyncSession = Depends(get_session)
+    db: AsyncSession = Depends(get_session),
+    _access = Depends(require_active_access)
 ):
     _require_context_admin(agent)
 
@@ -155,7 +157,8 @@ async def upload_context_file(
 async def upload_context_text(
     payload: dict,
     agent: Agent = Depends(get_current_agent),
-    db: AsyncSession = Depends(get_session)
+    db: AsyncSession = Depends(get_session),
+    _access = Depends(require_active_access)
 ):
     _require_context_admin(agent)
 
