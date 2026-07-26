@@ -6,7 +6,7 @@ const INDIVIDUAL_PLANS = [
   {
     key: 'individual_2week',
     label: '2 Weeks',
-    price: 20,
+    price: 28000,
     unit: '/ 2 weeks',
     tagline: 'Try a real sales sprint',
     benefits: [
@@ -19,7 +19,7 @@ const INDIVIDUAL_PLANS = [
   {
     key: 'individual_1month',
     label: '1 Month',
-    price: 38,
+    price: 53000,
     unit: '/ month',
     tagline: 'Most flexible',
     benefits: [
@@ -32,7 +32,7 @@ const INDIVIDUAL_PLANS = [
   {
     key: 'individual_1year',
     label: '1 Year',
-    price: 432,
+    price: 605000,
     unit: '/ year',
     tagline: 'Best value — save 5%',
     highlight: true,
@@ -48,7 +48,7 @@ const INDIVIDUAL_PLANS = [
 const TEAM_PLAN = {
   key: 'team_monthly',
   label: 'Team',
-  pricePerSeat: 99,
+  pricePerSeat: 139000,
   unit: '/ seat / month',
   minSeats: 5,
   tagline: 'For sales teams',
@@ -97,7 +97,7 @@ export default function Pricing({ token, profile }) {
               <p style={s.planLabel}>{plan.label}</p>
               <p style={s.tagline}>{plan.tagline}</p>
               <p style={s.price}>
-                ${plan.price}<span style={s.unit}>{plan.unit}</span>
+                ₦{plan.price.toLocaleString()}<span style={s.unit}>{plan.unit}</span>
               </p>
               <ul style={s.benefitList}>
                 {plan.benefits.map((b, i) => (
@@ -123,7 +123,7 @@ export default function Pricing({ token, profile }) {
           <p style={s.planLabel}>{TEAM_PLAN.label}</p>
           <p style={s.tagline}>{TEAM_PLAN.tagline}</p>
           <p style={s.price}>
-            ${TEAM_PLAN.pricePerSeat}<span style={s.unit}>{TEAM_PLAN.unit}</span>
+            ₦{TEAM_PLAN.pricePerSeat.toLocaleString()}<span style={s.unit}>{TEAM_PLAN.unit}</span>
           </p>
           <ul style={s.benefitList}>
             {TEAM_PLAN.benefits.map((b, i) => (
@@ -143,7 +143,7 @@ export default function Pricing({ token, profile }) {
               style={s.seatInput}
             />
           </div>
-          <p style={s.seatTotal}>${TEAM_PLAN.pricePerSeat * seats} / month total</p>
+          <p style={s.seatTotal}>₦{(TEAM_PLAN.pricePerSeat * seats).toLocaleString()} / month total</p>
 
           {profile?.role !== 'admin' ? (
             <p style={s.adminNotice}>Only an org admin can manage billing for your team.</p>

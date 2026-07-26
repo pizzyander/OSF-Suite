@@ -87,6 +87,10 @@ export default function Meeting({ token }) {
       setMode('live')
       setFinalizing(false)
     } catch (err) {
+      if (err.status === 402) {
+        navigate('/pricing')
+        return
+      }
       setStatus(`Initialization error: ${err.message}`)
       setMode('idle')
     }
@@ -144,6 +148,10 @@ export default function Meeting({ token }) {
       await api.uploadComplete(token, meeting_id, s3_key)
       startPolling(meeting_id)
     } catch (err) {
+      if (err.status === 402) {
+        navigate('/pricing')
+        return
+      }
       setStatus(`Upload failed: ${err.message}`)
     } finally {
       setUploading(false)

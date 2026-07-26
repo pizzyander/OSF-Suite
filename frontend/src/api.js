@@ -19,7 +19,9 @@ async function request(method, path, body, token) {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(err.detail || res.statusText)
+    const error = new Error(err.detail || res.statusText)
+    error.status = res.status  // lets callers check e.g. error.status === 402 instead of matching message text
+    throw error
   }
   return res.json()
 }

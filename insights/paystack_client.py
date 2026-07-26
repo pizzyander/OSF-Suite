@@ -14,7 +14,7 @@ PAYSTACK_BASE_URL = "https://api.paystack.co"
 # dashboard must have USD enabled ALONGSIDE your base currency (NGN) —
 # this is currently only available to Nigeria/Kenya-based merchants, not
 # universal. If unavailable, switch this to "NGN" and reprice in Naira.
-CURRENCY = os.getenv("PAYSTACK_CURRENCY", "USD")
+CURRENCY = os.getenv("PAYSTACK_CURRENCY", "NGN")
 
 _headers = {
     "Authorization": f"Bearer {PAYSTACK_SECRET_KEY}",
