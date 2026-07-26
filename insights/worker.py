@@ -9,9 +9,13 @@ from sqlalchemy import select
 from botocore.config import Config
 from db import init_db, AsyncSessionLocal, Meeting, Agent
 from db_coaching import CoachingPlan, WinningPattern
-from mailer import send_meeting_ready_email, send_coaching_plan_email
+from mailer import (
+    send_meeting_ready_email, send_coaching_plan_email,
+    send_renewal_receipt_email, send_payment_failed_email, send_access_expired_email,
+)
 from coaching_agent import run_gap_analysis, run_winning_pattern_extraction, get_winning_patterns_block
 from db_billing import Subscription
+from billing_routes import PLANS
 import paystack_client
 import uuid
 from db_context import CompanyContext
@@ -595,7 +599,7 @@ async def _process_renewal(subscription_id: str):
         try:
             result = await paystack_client.charge_authorization(
                 email=agent.email,
-                amount_usd=sub.amount_usd,
+                amount=sub.amount,
                 authorization_code=sub.paystack_authorization_code,
                 reference=reference,
             )
@@ -610,6 +614,12 @@ async def _process_renewal(subscription_id: str):
             sub.last_charge_reference = reference
             await db.commit()
             print(f"Renewed subscription={subscription_id}, next charge in {sub.interval_days} days")
+
+            plan_label = PLANS.get(sub.plan, {}).get("label", sub.plan)
+            await asyncio.to_thread(
+                send_renewal_receipt_email, agent.email, agent.name, plan_label,
+                sub.amount, sub.current_period_end.strftime("%B %d, %Y")
+            )
         else:
             # Give a grace window before fully cutting access — a card
             # can fail for a transient reason (bank hiccup) and succeed
@@ -617,12 +627,20 @@ async def _process_renewal(subscription_id: str):
             # noticing a real interruption.
             grace_deadline = (sub.trial_ends_at or sub.current_period_end) + timedelta(days=PAST_DUE_GRACE_DAYS) \
                 if sub.status == "active" else datetime.utcnow() + timedelta(days=PAST_DUE_GRACE_DAYS)
-            if sub.status == "past_due" and datetime.utcnow() > grace_deadline:
+            was_already_past_due = sub.status == "past_due"
+
+            if was_already_past_due and datetime.utcnow() > grace_deadline:
                 sub.status = "expired"
             else:
                 sub.status = "past_due"
             await db.commit()
             print(f"Renewal charge failed for subscription={subscription_id}, status={sub.status}")
+
+            if sub.status == "expired":
+                await asyncio.to_thread(send_access_expired_email, agent.email, agent.name)
+            else:
+                days_left = max(0, (grace_deadline - datetime.utcnow()).days)
+                await asyncio.to_thread(send_payment_failed_email, agent.email, agent.name, days_left)
 
 
 async def run():
