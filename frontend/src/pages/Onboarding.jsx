@@ -55,9 +55,32 @@ export default function Onboarding({ token, onComplete }) {
 
   const updateField = (key, value) => setFields(prev => ({ ...prev, [key]: value }))
 
+  // Full ordered list of every screen in the flow, computed dynamically since
+  // it depends on account type (individual vs org) and admin status. Used for
+  // both the progress dots and generic next/back navigation.
+  const getFlowSequence = () => {
+    const seq = ['account_type']
+    if (accountType === 'organization') seq.push('org_name')
+    seq.push('profile_locale', 'profile_job_title', 'profile_role_summary')
+    if (accountType === 'individual') seq.push('profile_company')
+    seq.push('profile_what_we_sell', 'profile_methodology', 'profile_goal', 'context')
+    if (isOrgAdmin) seq.push('invite_team')
+    return seq
+  }
+
+  const goToStep = (delta) => {
+    const seq = getFlowSequence()
+    const idx = seq.indexOf(step)
+    const target = seq[idx + delta]
+    if (target) setStep(target)
+  }
+
+  const nextProfileStep = () => goToStep(1)
+  const prevProfileStep = () => goToStep(-1)
+
   const chooseIndividual = () => {
     setAccountType('individual')
-    setStep('profile')
+    setStep('profile_locale')
   }
   const chooseOrganization = () => {
     setAccountType('organization')
@@ -71,7 +94,7 @@ export default function Onboarding({ token, onComplete }) {
     try {
       await api.createOrganization(token, orgName.trim())
       setIsOrgAdmin(true)
-      setStep('profile')
+      setStep('profile_locale')
     } catch (err) {
       setError(err.message)
     } finally {
@@ -79,6 +102,8 @@ export default function Onboarding({ token, onComplete }) {
     }
   }
 
+  // Fires on the last profile sub-step (primary goal). Everything collected
+  // across the profile screens is sent in a single call, same as before.
   const submitProfile = async () => {
     setSaving(true)
     setError('')
@@ -165,7 +190,7 @@ export default function Onboarding({ token, onComplete }) {
   return (
     <div style={styles.wrap}>
       <div style={styles.card}>
-        <ProgressDots step={step} isOrgAdmin={isOrgAdmin} />
+        <ProgressDots step={step} sequence={getFlowSequence()} />
 
         {step === 'account_type' && (
           <div style={styles.stepBox}>
@@ -188,6 +213,7 @@ export default function Onboarding({ token, onComplete }) {
 
         {step === 'org_name' && (
           <div style={styles.stepBox}>
+            <BackLink onClick={() => setStep('account_type')} />
             <h1 style={styles.title}>What's your company called?</h1>
             <p style={styles.sub}>You'll be the admin — you can invite your team in a moment.</p>
             <input
@@ -204,27 +230,66 @@ export default function Onboarding({ token, onComplete }) {
           </div>
         )}
 
-        {step === 'profile' && (
+        {step === 'profile_locale' && (
           <div style={styles.stepBox}>
-            <h1 style={styles.title}>Tell us about yourself</h1>
-            <p style={styles.sub}>This helps us tailor your coaching from day one.</p>
-
+            <BackLink onClick={prevProfileStep} />
+            <h1 style={styles.title}>Where are you joining from?</h1>
+            <p style={styles.sub}>We picked these up automatically — feel free to correct them.</p>
             <div style={styles.fieldRow}>
               <Field label="Country" value={fields.country} onChange={v => updateField('country', v)} />
               <Field label="Language" value={fields.language} onChange={v => updateField('language', v)} />
             </div>
-            <Field label="Job title" placeholder="e.g. Account Executive" value={fields.job_title} onChange={v => updateField('job_title', v)} />
-            <Field label="Briefly, what does your role involve?" textarea
+            <button style={styles.btn} onClick={nextProfileStep}>Continue</button>
+          </div>
+        )}
+
+        {step === 'profile_job_title' && (
+          <div style={styles.stepBox}>
+            <BackLink onClick={prevProfileStep} />
+            <h1 style={styles.title}>What's your job title?</h1>
+            <p style={styles.sub}>This helps us tailor your coaching from day one.</p>
+            <Field placeholder="e.g. Account Executive" value={fields.job_title} onChange={v => updateField('job_title', v)} />
+            <button style={styles.btn} onClick={nextProfileStep}>Continue</button>
+          </div>
+        )}
+
+        {step === 'profile_role_summary' && (
+          <div style={styles.stepBox}>
+            <BackLink onClick={prevProfileStep} />
+            <h1 style={styles.title}>Briefly, what does your role involve?</h1>
+            <p style={styles.sub}>A sentence or two is plenty.</p>
+            <Field textarea
               placeholder="e.g. I run discovery and closing calls for mid-market accounts"
               value={fields.role_summary} onChange={v => updateField('role_summary', v)} />
-            {accountType === 'individual' && (
-              <Field label="Company" value={fields.company_name} onChange={v => updateField('company_name', v)} />
-            )}
-            <Field label="What do you sell?" textarea
+            <button style={styles.btn} onClick={nextProfileStep}>Continue</button>
+          </div>
+        )}
+
+        {step === 'profile_company' && (
+          <div style={styles.stepBox}>
+            <BackLink onClick={prevProfileStep} />
+            <h1 style={styles.title}>What company do you work for?</h1>
+            <Field placeholder="e.g. Acme Inc." value={fields.company_name} onChange={v => updateField('company_name', v)} />
+            <button style={styles.btn} onClick={nextProfileStep}>Continue</button>
+          </div>
+        )}
+
+        {step === 'profile_what_we_sell' && (
+          <div style={styles.stepBox}>
+            <BackLink onClick={prevProfileStep} />
+            <h1 style={styles.title}>What do you sell?</h1>
+            <p style={styles.sub}>Product, market, price point — whatever gives useful context.</p>
+            <Field textarea
               placeholder="e.g. B2B SaaS for supply chain teams, $99-$999/mo"
               value={fields.what_we_sell} onChange={v => updateField('what_we_sell', v)} />
+            <button style={styles.btn} onClick={nextProfileStep}>Continue</button>
+          </div>
+        )}
 
-            <p style={styles.fieldLabel}>Sales methodology</p>
+        {step === 'profile_methodology' && (
+          <div style={styles.stepBox}>
+            <BackLink onClick={prevProfileStep} />
+            <h1 style={styles.title}>What sales methodology do you use?</h1>
             <div style={styles.chipRow}>
               {SALES_METHODOLOGIES.map(m => (
                 <button key={m}
@@ -234,8 +299,16 @@ export default function Onboarding({ token, onComplete }) {
                 </button>
               ))}
             </div>
+            <button style={styles.btn} onClick={nextProfileStep}>
+              Continue
+            </button>
+          </div>
+        )}
 
-            <p style={styles.fieldLabel}>What's your main goal right now?</p>
+        {step === 'profile_goal' && (
+          <div style={styles.stepBox}>
+            <BackLink onClick={prevProfileStep} />
+            <h1 style={styles.title}>What's your main goal right now?</h1>
             <div style={styles.chipRow}>
               {PRIMARY_GOALS.map(g => (
                 <button key={g.value}
@@ -245,9 +318,8 @@ export default function Onboarding({ token, onComplete }) {
                 </button>
               ))}
             </div>
-
             {error && <p style={styles.error}>{error}</p>}
-            <button style={styles.btn} onClick={submitProfile} disabled={saving}>
+            <button style={styles.btn} onClick={submitProfile} disabled={saving || !fields.primary_goal}>
               {saving ? 'Saving...' : 'Continue'}
             </button>
           </div>
@@ -324,22 +396,29 @@ export default function Onboarding({ token, onComplete }) {
 function Field({ label, value, onChange, placeholder, textarea }) {
   return (
     <div style={{ marginBottom: '1.25rem' }}>
-      <p style={styles.fieldLabel}>{label}</p>
+      {label && <p style={styles.fieldLabel}>{label}</p>}
       {textarea ? (
         <textarea style={styles.textarea} rows={2} placeholder={placeholder}
-          value={value} onChange={e => onChange(e.target.value)} />
+          value={value} onChange={e => onChange(e.target.value)} autoFocus />
       ) : (
         <input style={styles.input} placeholder={placeholder}
-          value={value} onChange={e => onChange(e.target.value)} />
+          value={value} onChange={e => onChange(e.target.value)} autoFocus />
       )}
     </div>
   )
 }
 
-function ProgressDots({ step, isOrgAdmin }) {
-  const steps = isOrgAdmin
-    ? ['account_type', 'org_name', 'profile', 'context', 'invite_team']
-    : ['account_type', 'profile', 'context']
+function BackLink({ onClick }) {
+  return (
+    <button type="button" style={styles.backLink} onClick={onClick}>
+      ← Back
+    </button>
+  )
+}
+
+function ProgressDots({ step, sequence }) {
+  // "transitioning" isn't a screen the user steps through, so it has no dot.
+  const steps = sequence.filter(s => s !== 'transitioning')
   const currentIndex = steps.indexOf(step)
   if (currentIndex === -1) return null
 
@@ -362,6 +441,7 @@ const styles = {
   dots:      { display: 'flex', gap: '6px', justifyContent: 'center', marginBottom: '2rem' },
   dot:       { height: '8px', borderRadius: '4px', transition: 'all 0.3s ease' },
   stepBox:   { animation: 'fadeIn 0.4s ease' },
+  backLink:  { background: 'none', border: 'none', color: '#666', fontSize: '13px', cursor: 'pointer', padding: 0, marginBottom: '1.25rem', fontFamily: 'inherit' },
   title:     { color: '#fff', fontSize: '26px', fontWeight: 700, margin: '0 0 8px', letterSpacing: '-0.02em' },
   sub:       { color: '#888', fontSize: '15px', lineHeight: 1.6, margin: '0 0 2rem' },
   choiceRow: { display: 'flex', gap: '14px' },
