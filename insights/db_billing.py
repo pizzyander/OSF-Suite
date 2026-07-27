@@ -24,7 +24,7 @@ class Subscription(Base):
 
     plan          = Column(String, nullable=True)
     seats         = Column(Integer, nullable=True)
-    amount_usd    = Column(Float, nullable=True)
+    amount        = Column(Float, nullable=True)  # in whatever PAYSTACK_CURRENCY is set to (NGN, not USD)
     interval_days = Column(Integer, nullable=True)
 
     status = Column(String, default="trialing")

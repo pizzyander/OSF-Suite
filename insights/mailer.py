@@ -133,25 +133,25 @@ def send_trial_started_email(to_email: str, name: str, plan_label: str, trial_en
     return _send(to_email, "Your OSF-Suite trial has started", html, text)
 
 
-def send_trial_ending_soon_email(to_email: str, name: str, plan_label: str, amount_usd: float, charge_date: str) -> bool:
+def send_trial_ending_soon_email(to_email: str, name: str, plan_label: str, amount: float, charge_date: str) -> bool:
     html = f"""
     <p>Hi {name},</p>
-    <p>Your free trial ends in 2 days. Your card will be charged <strong>${amount_usd:.2f}</strong> for the
+    <p>Your free trial ends in 2 days. Your card will be charged <strong>₦{amount:,.0f}</strong> for the
     <strong>{plan_label}</strong> plan on <strong>{charge_date}</strong>.</p>
     <p>No action needed if you'd like to continue — this is just a heads up.</p>
     """
-    text = (f"Hi {name},\n\nYour trial ends in 2 days. ${amount_usd:.2f} will be charged for {plan_label} "
+    text = (f"Hi {name},\n\nYour trial ends in 2 days. ₦{amount:,.0f} will be charged for {plan_label} "
             f"on {charge_date}. No action needed to continue.")
     return _send(to_email, "Your OSF-Suite trial ends in 2 days", html, text)
 
 
-def send_renewal_receipt_email(to_email: str, name: str, plan_label: str, amount_usd: float, next_charge_date: str) -> bool:
+def send_renewal_receipt_email(to_email: str, name: str, plan_label: str, amount: float, next_charge_date: str) -> bool:
     html = f"""
     <p>Hi {name},</p>
-    <p>Payment received — <strong>${amount_usd:.2f}</strong> for your <strong>{plan_label}</strong> plan.</p>
+    <p>Payment received — <strong>₦{amount:,.0f}</strong> for your <strong>{plan_label}</strong> plan.</p>
     <p>Your next charge will be on <strong>{next_charge_date}</strong>.</p>
     """
-    text = f"Hi {name},\n\nPayment received: ${amount_usd:.2f} for {plan_label}. Next charge: {next_charge_date}."
+    text = f"Hi {name},\n\nPayment received: ₦{amount:,.0f} for {plan_label}. Next charge: {next_charge_date}."
     return _send(to_email, "Payment receipt — OSF-Suite", html, text)
 
 

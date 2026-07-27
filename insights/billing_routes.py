@@ -26,13 +26,13 @@ router = APIRouter(prefix="/billing", tags=["Billing"])
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost")
 TRIAL_DAYS = 7
-CARD_VERIFICATION_USD = 1.00  # small charge to obtain a reusable card token, refunded once the trial starts
+CARD_VERIFICATION_AMOUNT = 100  # small NGN charge to obtain a reusable card token, refunded once the trial starts
 
 PLANS = {
-    "individual_2week":  {"label": "2 Weeks",  "amount_usd": 20,  "interval_days": 14},
-    "individual_1month": {"label": "1 Month",  "amount_usd": 38,  "interval_days": 30},
-    "individual_1year":  {"label": "1 Year",   "amount_usd": 432, "interval_days": 365},
-    "team_monthly":       {"label": "Team (monthly)", "amount_per_seat_usd": 99, "interval_days": 30, "min_seats": 5},
+    "individual_2week":  {"label": "2 Weeks",  "amount": 28000,  "interval_days": 14},
+    "individual_1month": {"label": "1 Month",  "amount": 53000,  "interval_days": 30},
+    "individual_1year":  {"label": "1 Year",   "amount": 605000, "interval_days": 365},
+    "team_monthly":       {"label": "Team (monthly)", "amount_per_seat": 139000, "interval_days": 30, "min_seats": 5},
 }
 
 
@@ -69,11 +69,11 @@ async def start_trial(
         seats = int(seats or PLANS["team_monthly"]["min_seats"])
         if seats < PLANS["team_monthly"]["min_seats"]:
             raise HTTPException(status_code=400, detail=f"Team plans require at least {PLANS['team_monthly']['min_seats']} seats.")
-        amount_usd = PLANS["team_monthly"]["amount_per_seat_usd"] * seats
+        amount = PLANS["team_monthly"]["amount_per_seat"] * seats
     else:
         if owner_type != "individual":
             raise HTTPException(status_code=400, detail="This plan is for individual accounts.")
-        amount_usd = PLANS[plan_key]["amount_usd"]
+        amount = PLANS[plan_key]["amount"]
 
     existing = await db.execute(select(Subscription).where(Subscription.owner_id == owner_id))
     if existing.scalar_one_or_none():
@@ -84,7 +84,7 @@ async def start_trial(
     try:
         result = await paystack_client.initialize_transaction(
             email=agent.email,
-            amount_usd=CARD_VERIFICATION_USD,
+            amount=CARD_VERIFICATION_AMOUNT,
             reference=reference,
             callback_url=f"{FRONTEND_URL}/billing/callback",
             metadata={
@@ -93,7 +93,7 @@ async def start_trial(
                 "owner_id": owner_id,
                 "plan": plan_key,
                 "seats": seats,
-                "amount_usd": amount_usd,
+                "amount": amount,
                 "interval_days": PLANS[plan_key]["interval_days"],
             },
         )
@@ -146,7 +146,7 @@ async def _handle_trial_verified(data: dict, metadata: dict, db: AsyncSession):
         owner_id=owner_id,
         plan=metadata["plan"],
         seats=metadata.get("seats"),
-        amount_usd=metadata["amount_usd"],
+        amount=metadata["amount"],
         interval_days=metadata["interval_days"],
         status="trialing",
         trial_ends_at=trial_ends_at,

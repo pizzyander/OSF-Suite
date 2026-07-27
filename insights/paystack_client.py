@@ -10,10 +10,11 @@ import httpx
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY", "")
 PAYSTACK_BASE_URL = "https://api.paystack.co"
 
-# CONFIRM before going live: Settings > Preferences on your Paystack
-# dashboard must have USD enabled ALONGSIDE your base currency (NGN) —
-# this is currently only available to Nigeria/Kenya-based merchants, not
-# universal. If unavailable, switch this to "NGN" and reprice in Naira.
+# Confirmed via direct Paystack test: this account has no active USD
+# channel ("No active channel to process transaction" — code
+# invalid_params). NGN works and is this account's actual settlement
+# currency, so that's what we bill in until/unless USD gets activated
+# separately with Paystack support.
 CURRENCY = os.getenv("PAYSTACK_CURRENCY", "NGN")
 
 _headers = {
@@ -40,11 +41,11 @@ async def _request(method: str, path: str, json: dict | None = None) -> dict:
 
 
 async def initialize_transaction(
-    email: str, amount_usd: float, reference: str, callback_url: str, metadata: dict
+    email: str, amount: float, reference: str, callback_url: str, metadata: dict
 ) -> dict:
     payload = {
         "email": email,
-        "amount": int(round(amount_usd * 100)),
+        "amount": int(round(amount * 100)),
         "currency": CURRENCY,
         "reference": reference,
         "callback_url": callback_url,
@@ -53,10 +54,10 @@ async def initialize_transaction(
     return await _request("POST", "/transaction/initialize", payload)
 
 
-async def charge_authorization(email: str, amount_usd: float, authorization_code: str, reference: str) -> dict:
+async def charge_authorization(email: str, amount: float, authorization_code: str, reference: str) -> dict:
     payload = {
         "email": email,
-        "amount": int(round(amount_usd * 100)),
+        "amount": int(round(amount * 100)),
         "currency": CURRENCY,
         "authorization_code": authorization_code,
         "reference": reference,
