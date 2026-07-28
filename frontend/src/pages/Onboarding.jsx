@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { User, Building2, FileText, ArrowLeft } from 'lucide-react'
 import { api } from '../api'
 
 // Auto-detect the user's likely country/language from the browser so the
-// first screen feels like it already "knows" them — they confirm rather
+// first screen feels like it already "knows" them, they confirm rather
 // than type from scratch. This is a well-worn premium-SaaS pattern
 // (Notion, Linear, Superhuman all do a version of this).
 function detectLocale() {
@@ -189,6 +190,13 @@ export default function Onboarding({ token, onComplete }) {
 
   return (
     <div style={styles.wrap}>
+      <style>{`
+        @keyframes osfFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes osfShimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+        @media (prefers-reduced-motion: reduce) {
+          .osf-onb-skel { animation: none !important; }
+        }
+      `}</style>
       <div style={styles.card}>
         <ProgressDots step={step} sequence={getFlowSequence()} />
 
@@ -198,12 +206,12 @@ export default function Onboarding({ token, onComplete }) {
             <p style={styles.sub}>Let's set up your workspace.</p>
             <div style={styles.choiceRow}>
               <button style={styles.choiceCard} onClick={chooseIndividual}>
-                <span style={styles.choiceIcon}>👤</span>
+                <span style={styles.choiceIconWrap}><User size={20} /></span>
                 <span style={styles.choiceLabel}>Just me</span>
                 <span style={styles.choiceSub}>Individual account</span>
               </button>
               <button style={styles.choiceCard} onClick={chooseOrganization}>
-                <span style={styles.choiceIcon}>🏢</span>
+                <span style={styles.choiceIconWrap}><Building2 size={20} /></span>
                 <span style={styles.choiceLabel}>My team</span>
                 <span style={styles.choiceSub}>Create an organization</span>
               </button>
@@ -215,7 +223,7 @@ export default function Onboarding({ token, onComplete }) {
           <div style={styles.stepBox}>
             <BackLink onClick={() => setStep('account_type')} />
             <h1 style={styles.title}>What's your company called?</h1>
-            <p style={styles.sub}>You'll be the admin — you can invite your team in a moment.</p>
+            <p style={styles.sub}>You'll be the admin. You can invite your team in a moment.</p>
             <input
               style={styles.input}
               placeholder="Acme Inc."
@@ -224,7 +232,7 @@ export default function Onboarding({ token, onComplete }) {
               autoFocus
             />
             {error && <p style={styles.error}>{error}</p>}
-            <button style={styles.btn} onClick={submitOrgName} disabled={saving || !orgName.trim()}>
+            <button style={{ ...styles.btn, ...(saving || !orgName.trim() ? styles.btnDisabled : {}) }} onClick={submitOrgName} disabled={saving || !orgName.trim()}>
               {saving ? 'Creating...' : 'Continue'}
             </button>
           </div>
@@ -234,7 +242,7 @@ export default function Onboarding({ token, onComplete }) {
           <div style={styles.stepBox}>
             <BackLink onClick={prevProfileStep} />
             <h1 style={styles.title}>Where are you joining from?</h1>
-            <p style={styles.sub}>We picked these up automatically — feel free to correct them.</p>
+            <p style={styles.sub}>We picked these up automatically. Feel free to correct them.</p>
             <div style={styles.fieldRow}>
               <Field label="Country" value={fields.country} onChange={v => updateField('country', v)} />
               <Field label="Language" value={fields.language} onChange={v => updateField('language', v)} />
@@ -278,9 +286,9 @@ export default function Onboarding({ token, onComplete }) {
           <div style={styles.stepBox}>
             <BackLink onClick={prevProfileStep} />
             <h1 style={styles.title}>What do you sell?</h1>
-            <p style={styles.sub}>Product, market, price point — whatever gives useful context.</p>
+            <p style={styles.sub}>Product, market, price point. Whatever gives useful context.</p>
             <Field textarea
-              placeholder="e.g. B2B SaaS for supply chain teams, $99-$999/mo"
+              placeholder="e.g. B2B SaaS for supply chain teams, $99 to $999 per month"
               value={fields.what_we_sell} onChange={v => updateField('what_we_sell', v)} />
             <button style={styles.btn} onClick={nextProfileStep}>Continue</button>
           </div>
@@ -319,7 +327,7 @@ export default function Onboarding({ token, onComplete }) {
               ))}
             </div>
             {error && <p style={styles.error}>{error}</p>}
-            <button style={styles.btn} onClick={submitProfile} disabled={saving || !fields.primary_goal}>
+            <button style={{ ...styles.btn, ...(saving || !fields.primary_goal ? styles.btnDisabled : {}) }} onClick={submitProfile} disabled={saving || !fields.primary_goal}>
               {saving ? 'Saving...' : 'Continue'}
             </button>
           </div>
@@ -329,7 +337,7 @@ export default function Onboarding({ token, onComplete }) {
           <div style={styles.stepBox}>
             <h1 style={styles.title}>Let's make your coach smart from day one</h1>
             <p style={styles.sub}>
-              Upload a pricing sheet, pitch deck, or product doc — every meeting you analyze from
+              Upload a pricing sheet, pitch deck, or product doc. Every meeting you analyze from
               here on will be checked against it automatically.
               {isOrgAdmin && ' This will be shared with your whole team.'}
             </p>
@@ -337,7 +345,7 @@ export default function Onboarding({ token, onComplete }) {
             <label style={styles.dropzone}>
               <input type="file" accept=".pdf,.docx,.txt" style={{ display: 'none' }}
                 onChange={e => setContextFile(e.target.files[0])} />
-              <span style={styles.dropzoneIcon}>📄</span>
+              <span style={styles.dropzoneIconWrap}><FileText size={22} /></span>
               <span style={styles.dropzoneText}>
                 {contextFile ? contextFile.name : 'Click to upload a file, or paste text below'}
               </span>
@@ -345,14 +353,14 @@ export default function Onboarding({ token, onComplete }) {
 
             <textarea
               style={styles.textarea}
-              placeholder="Or paste your context directly — pricing, positioning, competitors, anything a new rep would need to know."
+              placeholder="Or paste your context directly: pricing, positioning, competitors, anything a new rep would need to know."
               value={contextText}
               onChange={e => setContextText(e.target.value)}
               rows={5}
             />
 
             {error && <p style={styles.error}>{error}</p>}
-            <button style={styles.btn} onClick={submitContext} disabled={saving || (!contextFile && !contextText.trim())}>
+            <button style={{ ...styles.btn, ...(saving || (!contextFile && !contextText.trim()) ? styles.btnDisabled : {}) }} onClick={submitContext} disabled={saving || (!contextFile && !contextText.trim())}>
               {saving ? 'Uploading...' : 'Continue'}
             </button>
             <button style={styles.btnGhost} onClick={skipContext} disabled={saving}>
@@ -364,7 +372,7 @@ export default function Onboarding({ token, onComplete }) {
         {step === 'invite_team' && (
           <div style={styles.stepBox}>
             <h1 style={styles.title}>Invite your team</h1>
-            <p style={styles.sub}>Optional — you can always do this later from your team settings.</p>
+            <p style={styles.sub}>Optional. You can always do this later from your team settings.</p>
 
             {inviteEmails.map((email, i) => (
               <input key={i} style={styles.input} type="email" placeholder="teammate@company.com"
@@ -373,7 +381,7 @@ export default function Onboarding({ token, onComplete }) {
             <button style={styles.btnGhostSmall} onClick={addInviteRow}>+ Add another</button>
 
             {error && <p style={styles.error}>{error}</p>}
-            <button style={styles.btn} onClick={submitInvites} disabled={saving}>
+            <button style={{ ...styles.btn, ...(saving ? styles.btnDisabled : {}) }} onClick={submitInvites} disabled={saving}>
               {saving ? 'Sending invites...' : 'Send invites'}
             </button>
             <button style={styles.btnGhost} onClick={skipInvites} disabled={saving}>
@@ -384,7 +392,11 @@ export default function Onboarding({ token, onComplete }) {
 
         {step === 'transitioning' && (
           <div style={styles.transitionBox}>
-            <div style={styles.spinner} />
+            <div style={styles.skelGroup}>
+              <div className="osf-onb-skel" style={{ ...styles.skelBar, width: '60%' }} />
+              <div className="osf-onb-skel" style={{ ...styles.skelBar, width: '90%' }} />
+              <div className="osf-onb-skel" style={{ ...styles.skelBar, width: '75%' }} />
+            </div>
             <p style={styles.transitionText}>Personalizing your experience...</p>
           </div>
         )}
@@ -411,7 +423,7 @@ function Field({ label, value, onChange, placeholder, textarea }) {
 function BackLink({ onClick }) {
   return (
     <button type="button" style={styles.backLink} onClick={onClick}>
-      ← Back
+      <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> Back
     </button>
   )
 }
@@ -427,8 +439,8 @@ function ProgressDots({ step, sequence }) {
       {steps.map((s, i) => (
         <div key={s} style={{
           ...styles.dot,
-          background: i <= currentIndex ? '#6c5ce7' : '#2a2a2a',
-          width: i === currentIndex ? '24px' : '8px',
+          background: i < currentIndex ? '#0A1A2F' : i === currentIndex ? '#B8863B' : '#E5E2DB',
+          width: i === currentIndex ? '22px' : '7px',
         }} />
       ))}
     </div>
@@ -436,34 +448,36 @@ function ProgressDots({ step, sequence }) {
 }
 
 const styles = {
-  wrap:      { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f0f0f', padding: '1.5rem' },
-  card:      { width: '100%', maxWidth: '520px' },
-  dots:      { display: 'flex', gap: '6px', justifyContent: 'center', marginBottom: '2rem' },
-  dot:       { height: '8px', borderRadius: '4px', transition: 'all 0.3s ease' },
-  stepBox:   { animation: 'fadeIn 0.4s ease' },
-  backLink:  { background: 'none', border: 'none', color: '#666', fontSize: '13px', cursor: 'pointer', padding: 0, marginBottom: '1.25rem', fontFamily: 'inherit' },
-  title:     { color: '#fff', fontSize: '26px', fontWeight: 700, margin: '0 0 8px', letterSpacing: '-0.02em' },
-  sub:       { color: '#888', fontSize: '15px', lineHeight: 1.6, margin: '0 0 2rem' },
+  wrap:      { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F7F6F3', padding: '1.5rem', fontFamily: "'Inter', 'Helvetica Neue', Arial, sans-serif" },
+  card:      { width: '100%', maxWidth: '520px', background: '#FFFFFF', border: '1px solid #E5E2DB', borderRadius: '14px', padding: '2.75rem 2.25rem', boxShadow: '0 1px 2px rgba(10,26,47,0.04)' },
+  dots:      { display: 'flex', gap: '6px', justifyContent: 'center', marginBottom: '2.25rem' },
+  dot:       { height: '6px', borderRadius: '3px', transition: 'all 0.3s ease' },
+  stepBox:   { animation: 'osfFadeIn 0.35s ease' },
+  backLink:  { display: 'inline-flex', alignItems: 'center', background: 'none', border: 'none', color: '#8A8779', fontSize: '13px', cursor: 'pointer', padding: 0, marginBottom: '1.25rem', fontFamily: 'inherit' },
+  title:     { color: '#0A1A2F', fontSize: '25px', fontWeight: 600, margin: '0 0 8px', letterSpacing: '-0.01em', fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
+  sub:       { color: '#8A8779', fontSize: '14.5px', lineHeight: 1.6, margin: '0 0 2rem' },
   choiceRow: { display: 'flex', gap: '14px' },
-  choiceCard:{ flex: 1, background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '14px', padding: '2rem 1.25rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '8px', color: 'inherit', fontFamily: 'inherit' },
-  choiceIcon:{ fontSize: '30px' },
-  choiceLabel:{ color: '#fff', fontSize: '16px', fontWeight: 600 },
-  choiceSub: { color: '#666', fontSize: '13px' },
+  choiceCard:{ flex: 1, background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '12px', padding: '1.75rem 1.25rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '8px', color: 'inherit', fontFamily: 'inherit' },
+  choiceIconWrap:{ width: '36px', height: '36px', borderRadius: '9px', background: '#F6ECD9', color: '#8F6423', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2px' },
+  choiceLabel:{ color: '#0A1A2F', fontSize: '15.5px', fontWeight: 600 },
+  choiceSub: { color: '#8A8779', fontSize: '12.5px' },
   fieldRow:  { display: 'flex', gap: '12px' },
-  fieldLabel:{ color: '#aaa', fontSize: '13px', fontWeight: 600, margin: '0 0 8px' },
-  input:     { width: '100%', padding: '12px 14px', borderRadius: '10px', border: '1px solid #2a2a2a', background: '#151515', color: '#fff', fontSize: '14px', marginBottom: '10px', boxSizing: 'border-box' },
-  textarea:  { width: '100%', padding: '12px 14px', borderRadius: '10px', border: '1px solid #2a2a2a', background: '#151515', color: '#fff', fontSize: '14px', marginBottom: '10px', boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' },
+  fieldLabel:{ color: '#1B3A5C', fontSize: '12.5px', fontWeight: 600, margin: '0 0 8px' },
+  input:     { width: '100%', padding: '11px 13px', borderRadius: '8px', border: '1px solid #E5E2DB', background: '#FFFFFF', color: '#2B2A26', fontSize: '14px', marginBottom: '10px', boxSizing: 'border-box', fontFamily: 'inherit' },
+  textarea:  { width: '100%', padding: '11px 13px', borderRadius: '8px', border: '1px solid #E5E2DB', background: '#FFFFFF', color: '#2B2A26', fontSize: '14px', marginBottom: '10px', boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' },
   chipRow:   { display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '1.5rem' },
-  chip:      { padding: '8px 16px', borderRadius: '20px', border: '1px solid #2a2a2a', background: '#151515', color: '#aaa', fontSize: '13px', cursor: 'pointer' },
-  chipActive:{ background: '#6c5ce7', borderColor: '#6c5ce7', color: '#fff' },
-  dropzone:  { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '2.5rem 1.5rem', border: '1.5px dashed #333', borderRadius: '14px', cursor: 'pointer', marginBottom: '1rem', background: '#141414' },
-  dropzoneIcon:{ fontSize: '28px' },
-  dropzoneText:{ color: '#888', fontSize: '14px', textAlign: 'center' },
-  btn:       { width: '100%', padding: '13px', borderRadius: '10px', background: '#6c5ce7', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '15px', marginTop: '4px' },
-  btnGhost:  { width: '100%', padding: '11px', borderRadius: '10px', background: 'none', color: '#666', border: 'none', cursor: 'pointer', fontSize: '13px', marginTop: '10px' },
-  btnGhostSmall:{ background: 'none', border: 'none', color: '#6c5ce7', cursor: 'pointer', fontSize: '13px', padding: 0, marginBottom: '1.5rem' },
-  error:     { color: '#ff6b6b', fontSize: '13px', margin: '0 0 12px' },
-  transitionBox:{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.25rem', padding: '3rem 0' },
-  spinner:   { width: '32px', height: '32px', border: '3px solid #2a2a2a', borderTopColor: '#6c5ce7', borderRadius: '50%', animation: 'spin 0.8s linear infinite' },
-  transitionText:{ color: '#888', fontSize: '14px' },
+  chip:      { padding: '8px 16px', borderRadius: '20px', border: '1px solid #E5E2DB', background: '#FFFFFF', color: '#8A8779', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' },
+  chipActive:{ background: '#0A1A2F', borderColor: '#0A1A2F', color: '#fff' },
+  dropzone:  { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '2.25rem 1.5rem', border: '1.5px dashed #D8D4C9', borderRadius: '12px', cursor: 'pointer', marginBottom: '1rem', background: '#F7F6F3' },
+  dropzoneIconWrap:{ width: '38px', height: '38px', borderRadius: '10px', background: '#FFFFFF', border: '1px solid #E5E2DB', color: '#1B3A5C', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  dropzoneText:{ color: '#8A8779', fontSize: '13.5px', textAlign: 'center' },
+  btn:       { width: '100%', padding: '12.5px', borderRadius: '8px', background: '#0A1A2F', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '14.5px', marginTop: '4px', fontFamily: 'inherit' },
+  btnDisabled:{ opacity: 0.55, cursor: 'default' },
+  btnGhost:  { width: '100%', padding: '11px', borderRadius: '8px', background: 'none', color: '#8A8779', border: 'none', cursor: 'pointer', fontSize: '13px', marginTop: '10px', fontFamily: 'inherit' },
+  btnGhostSmall:{ background: 'none', border: 'none', color: '#8F6423', cursor: 'pointer', fontSize: '13px', padding: 0, marginBottom: '1.5rem', fontFamily: 'inherit', fontWeight: 600 },
+  error:     { color: '#B3453B', fontSize: '13px', margin: '0 0 12px' },
+  transitionBox:{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem', padding: '2.5rem 0' },
+  skelGroup: { width: '100%', display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' },
+  skelBar:   { height: '11px', borderRadius: '5px', background: 'linear-gradient(90deg, #EDEAE1 25%, #F7F3E9 37%, #EDEAE1 63%)', backgroundSize: '400% 100%', animation: 'osfShimmer 1.6s ease-in-out infinite' },
+  transitionText:{ color: '#8A8779', fontSize: '14px' },
 }

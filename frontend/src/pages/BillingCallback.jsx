@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Check } from 'lucide-react'
 import { api } from '../api'
 
 export default function BillingCallback({ token }) {
@@ -34,13 +35,16 @@ export default function BillingCallback({ token }) {
       <div style={s.card}>
         {status === 'checking' && (
           <>
-            <div style={s.spinner} />
+            <div style={s.skelGroup}>
+              <div className="osf-callback-skel" style={{ width: '55%', height: '11px' }} />
+              <div className="osf-callback-skel" style={{ width: '75%', height: '11px' }} />
+            </div>
             <p style={s.text}>Confirming your trial...</p>
           </>
         )}
         {status === 'active' && (
           <>
-            <div style={s.checkmark}>✓</div>
+            <div style={s.checkmark}><Check size={24} strokeWidth={3} /></div>
             <h1 style={s.title}>Trial started</h1>
             <p style={s.text}>Taking you to your dashboard...</p>
           </>
@@ -56,16 +60,27 @@ export default function BillingCallback({ token }) {
           </>
         )}
       </div>
+
+      <style>{`
+        @keyframes osfCallbackShimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+        .osf-callback-skel {
+          border-radius: 4px; margin: 0 auto 8px;
+          background: linear-gradient(90deg, #EDEAE1 25%, #F7F3E9 37%, #EDEAE1 63%);
+          background-size: 400% 100%;
+          animation: osfCallbackShimmer 1.6s ease-in-out infinite;
+        }
+        @media (prefers-reduced-motion: reduce) { .osf-callback-skel { animation: none; } }
+      `}</style>
     </div>
   )
 }
 
 const s = {
-  wrap:  { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f0f0f', padding: '1.5rem' },
-  card:  { width: '100%', maxWidth: '380px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '16px', padding: '2.5rem', textAlign: 'center' },
-  spinner: { width: '32px', height: '32px', border: '3px solid #2a2a2a', borderTopColor: '#6c5ce7', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 1.25rem' },
-  checkmark: { width: '48px', height: '48px', borderRadius: '50%', background: '#6c5ce7', color: '#fff', fontSize: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' },
-  title: { color: '#fff', fontSize: '20px', fontWeight: 700, margin: '0 0 8px' },
-  text:  { color: '#888', fontSize: '14px', lineHeight: 1.6, margin: '0 0 1.5rem' },
-  btn:   { width: '100%', padding: '13px', borderRadius: '10px', background: '#6c5ce7', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '15px' },
+  wrap:      { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F7F6F3', padding: '1.5rem', fontFamily: "'Inter', 'Helvetica Neue', Arial, sans-serif" },
+  card:      { width: '100%', maxWidth: '380px', background: '#FFFFFF', border: '1px solid #E5E2DB', borderRadius: '16px', padding: '2.75rem', textAlign: 'center', boxShadow: '0 1px 2px rgba(10,26,47,0.04)' },
+  skelGroup: { display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '1.25rem' },
+  checkmark: { width: '48px', height: '48px', borderRadius: '50%', background: '#0A1A2F', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem' },
+  title:     { color: '#0A1A2F', fontSize: '20px', fontWeight: 700, margin: '0 0 8px', fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
+  text:      { color: '#8A8779', fontSize: '14px', lineHeight: 1.6, margin: '0 0 1.5rem' },
+  btn:       { width: '100%', padding: '13px', borderRadius: '10px', background: '#0A1A2F', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '15px', fontFamily: 'inherit' },
 }

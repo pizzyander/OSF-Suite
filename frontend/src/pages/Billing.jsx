@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { ArrowLeft } from 'lucide-react'
 import { api } from '../api'
 
 const PLAN_LABELS = {
@@ -10,11 +11,11 @@ const PLAN_LABELS = {
 }
 
 const STATUS_COPY = {
-  trialing:  { label: 'Free trial',     color: '#6c8fff' },
-  active:    { label: 'Active',         color: '#6bffb8' },
-  past_due:  { label: 'Payment issue',  color: '#ffd93d' },
-  expired:   { label: 'Expired',        color: '#ff6b6b' },
-  cancelled: { label: 'Cancelled',      color: '#666' },
+  trialing:  { label: 'Free trial',    color: '#2C5478' },
+  active:    { label: 'Active',        color: '#3F6249' },
+  past_due:  { label: 'Payment issue', color: '#8F6423' },
+  expired:   { label: 'Expired',       color: '#B3453B' },
+  cancelled: { label: 'Cancelled',     color: '#8A8779' },
 }
 
 export default function Billing({ token, profile }) {
@@ -31,15 +32,27 @@ export default function Billing({ token, profile }) {
   }, [token])
 
   const formatDate = (iso) =>
-    iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+    iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'N/A'
 
   return (
     <div style={s.wrap}>
-      <button style={s.back} onClick={() => navigate('/')}>← Dashboard</button>
+      <button style={s.back} onClick={() => navigate('/')}>
+        <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> Dashboard
+      </button>
       <h1 style={s.title}>Billing</h1>
 
-      {loading && <p style={s.muted}>Loading...</p>}
       {error && <p style={s.error}>{error}</p>}
+
+      {loading && (
+        <div style={s.card}>
+          {[0, 1, 2].map(i => (
+            <div key={i} style={s.row}>
+              <div className="osf-billing-skel" style={{ width: '70px', height: '11px' }} />
+              <div className="osf-billing-skel" style={{ width: '110px', height: '11px' }} />
+            </div>
+          ))}
+        </div>
+      )}
 
       {!loading && status && !status.has_subscription && (
         <div style={s.emptyBox}>
@@ -59,7 +72,7 @@ export default function Billing({ token, profile }) {
           </div>
           <div style={s.row}>
             <span style={s.label}>Status</span>
-            <span style={{ ...s.statusBadge, color: STATUS_COPY[status.status]?.color || '#aaa' }}>
+            <span style={{ ...s.statusBadge, color: STATUS_COPY[status.status]?.color || '#46443E' }}>
               {STATUS_COPY[status.status]?.label || status.status}
             </span>
           </div>
@@ -80,33 +93,43 @@ export default function Billing({ token, profile }) {
             </p>
           )}
 
-          {/* No cancel/change-plan action here yet — the backend doesn't
+          {/* No cancel/change-plan action here yet, the backend doesn't
               have a cancellation endpoint built. Point to support in the
               meantime rather than wiring a button to nothing. */}
           <p style={s.supportNote}>
-            Need to change or cancel your plan? Email support — self-service management is coming soon.
+            Need to change or cancel your plan? Email support. Self-service management is coming soon.
           </p>
         </div>
       )}
+
+      <style>{`
+        @keyframes osfBillingShimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+        .osf-billing-skel {
+          border-radius: 4px;
+          background: linear-gradient(90deg, #EDEAE1 25%, #F7F3E9 37%, #EDEAE1 63%);
+          background-size: 400% 100%;
+          animation: osfBillingShimmer 1.6s ease-in-out infinite;
+        }
+        @media (prefers-reduced-motion: reduce) { .osf-billing-skel { animation: none; } }
+      `}</style>
     </div>
   )
 }
 
 const s = {
-  wrap:      { maxWidth: '520px', margin: '0 auto', padding: '2rem 1rem', background: '#0f0f0f', minHeight: '100vh' },
-  back:      { background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '14px', marginBottom: '1.5rem', padding: 0 },
-  title:     { color: '#fff', margin: '0 0 2rem', fontSize: '22px', fontWeight: 600 },
-  muted:     { color: '#555', fontSize: '14px' },
-  error:     { color: '#ff6b6b', fontSize: '14px' },
-  emptyBox:  { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '12px', padding: '2rem', textAlign: 'center' },
-  emptyText: { color: '#888', fontSize: '14px', margin: '0 0 1.25rem' },
-  card:      { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '14px', padding: '1.75rem' },
-  row:       { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #222' },
-  label:     { color: '#666', fontSize: '13px' },
-  value:     { color: '#fff', fontSize: '14px', fontWeight: 600 },
+  wrap:      { maxWidth: '520px', margin: '0 auto', padding: '2.5rem 1.5rem', background: '#FFFFFF', minHeight: '100vh', fontFamily: "'Inter', 'Helvetica Neue', Arial, sans-serif" },
+  back:      { display: 'inline-flex', alignItems: 'center', background: 'none', border: 'none', color: '#8A8779', cursor: 'pointer', fontSize: '14px', marginBottom: '1.5rem', padding: 0, fontFamily: 'inherit' },
+  title:     { color: '#0A1A2F', margin: '0 0 2rem', fontSize: '22px', fontWeight: 600, fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
+  error:     { color: '#B3453B', fontSize: '14px' },
+  emptyBox:  { background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '12px', padding: '2rem', textAlign: 'center' },
+  emptyText: { color: '#8A8779', fontSize: '14px', margin: '0 0 1.25rem' },
+  card:      { background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '14px', padding: '1.75rem' },
+  row:       { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #E5E2DB' },
+  label:     { color: '#8A8779', fontSize: '13px' },
+  value:     { color: '#0A1A2F', fontSize: '14px', fontWeight: 600 },
   statusBadge:{ fontSize: '13px', fontWeight: 700 },
-  warning:   { color: '#ffd93d', fontSize: '13px', margin: '1.25rem 0 0', lineHeight: 1.6 },
-  linkBtn:   { background: 'none', border: 'none', color: '#6c5ce7', textDecoration: 'underline', cursor: 'pointer', fontSize: '13px', padding: 0 },
-  supportNote:{ color: '#555', fontSize: '12px', margin: '1.5rem 0 0', lineHeight: 1.6 },
-  btn:       { padding: '11px 20px', borderRadius: '8px', background: '#6c5ce7', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '14px' },
+  warning:   { color: '#8F6423', fontSize: '13px', margin: '1.25rem 0 0', lineHeight: 1.6 },
+  linkBtn:   { background: 'none', border: 'none', color: '#8F6423', textDecoration: 'underline', cursor: 'pointer', fontSize: '13px', padding: 0, fontFamily: 'inherit' },
+  supportNote:{ color: '#8A8779', fontSize: '12px', margin: '1.5rem 0 0', lineHeight: 1.6 },
+  btn:       { padding: '11px 20px', borderRadius: '8px', background: '#0A1A2F', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '14px', fontFamily: 'inherit' },
 }

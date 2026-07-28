@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { ArrowLeft } from 'lucide-react'
 import { api } from '../api'
 
 export default function Team({ token, profile }) {
@@ -79,25 +80,28 @@ export default function Team({ token, profile }) {
     }
   }
 
-  const managerName = (managerId) => members.find(m => m.agent_id === managerId)?.name || '—'
+  const managerName = (managerId) => members.find(m => m.agent_id === managerId)?.name || 'N/A'
 
   if (profile && profile.role !== 'admin') {
     return (
       <div style={s.wrap}>
         <p style={s.err}>Only organization admins can view this page.</p>
-        <button style={s.btnGhost} onClick={() => navigate('/')}>← Dashboard</button>
+        <button style={s.btnGhost} onClick={() => navigate('/')}>
+          <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> Dashboard
+        </button>
       </div>
     )
   }
 
   return (
     <div style={s.wrap}>
-      <button style={s.back} onClick={() => navigate('/')}>← Dashboard</button>
+      <button style={s.back} onClick={() => navigate('/')}>
+        <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> Dashboard
+      </button>
       <h2 style={s.title}>Team</h2>
       <p style={s.sub}>{profile?.org_name}</p>
 
       {error && <p style={s.err}>{error}</p>}
-      {loading && <p style={s.muted}>Loading...</p>}
 
       {/* -- Invite form -- */}
       <div style={s.section}>
@@ -123,14 +127,25 @@ export default function Team({ token, profile }) {
               ))}
             </select>
           )}
-          <button style={s.btnPrimary} disabled={sending || !inviteEmail.trim()}>
+          <button style={{ ...s.btnPrimary, ...(sending || !inviteEmail.trim() ? s.btnDisabled : {}) }} disabled={sending || !inviteEmail.trim()}>
             {sending ? 'Sending...' : 'Send invite'}
           </button>
         </form>
       </div>
 
       {/* -- Pending invites -- */}
-      {invites.filter(i => i.status === 'pending').length > 0 && (
+      {loading && (
+        <div style={s.section}>
+          <h3 style={s.sectionTitle}>Pending invites</h3>
+          <div style={s.row}>
+            <div style={{ flex: 1 }}>
+              <div className="osf-team-skel" style={{ width: '140px', height: '11px', marginBottom: '8px' }} />
+              <div className="osf-team-skel" style={{ width: '100px', height: '9px' }} />
+            </div>
+          </div>
+        </div>
+      )}
+      {!loading && invites.filter(i => i.status === 'pending').length > 0 && (
         <div style={s.section}>
           <h3 style={s.sectionTitle}>Pending invites</h3>
           {invites.filter(i => i.status === 'pending').map(i => (
@@ -147,8 +162,17 @@ export default function Team({ token, profile }) {
 
       {/* -- Member roster -- */}
       <div style={s.section}>
-        <h3 style={s.sectionTitle}>Members ({members.length})</h3>
-        {members.map(m => (
+        <h3 style={s.sectionTitle}>Members {!loading && `(${members.length})`}</h3>
+        {loading && [0, 1, 2].map(i => (
+          <div key={i} style={s.row}>
+            <div style={{ flex: 1 }}>
+              <div className="osf-team-skel" style={{ width: '130px', height: '11px', marginBottom: '8px' }} />
+              <div className="osf-team-skel" style={{ width: '180px', height: '9px' }} />
+            </div>
+            <div className="osf-team-skel" style={{ width: '80px', height: '26px' }} />
+          </div>
+        ))}
+        {!loading && members.map(m => (
           <div key={m.agent_id} style={s.row}>
             <div>
               <p style={s.rowName}>{m.name}</p>
@@ -183,28 +207,39 @@ export default function Team({ token, profile }) {
           </div>
         ))}
       </div>
+
+      <style>{`
+        @keyframes osfTeamShimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+        .osf-team-skel {
+          border-radius: 4px;
+          background: linear-gradient(90deg, #EDEAE1 25%, #F7F3E9 37%, #EDEAE1 63%);
+          background-size: 400% 100%;
+          animation: osfTeamShimmer 1.6s ease-in-out infinite;
+        }
+        @media (prefers-reduced-motion: reduce) { .osf-team-skel { animation: none; } }
+      `}</style>
     </div>
   )
 }
 
 const s = {
-  wrap:        { maxWidth: '760px', margin: '0 auto', padding: '2rem 1rem', background: '#0f0f0f', minHeight: '100vh' },
-  back:        { background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '14px', marginBottom: '1.5rem', padding: 0 },
-  title:       { color: '#fff', margin: '0 0 4px', fontSize: '22px', fontWeight: 600 },
-  sub:         { color: '#6c5ce7', fontSize: '14px', fontWeight: 600, margin: '0 0 2rem' },
+  wrap:        { maxWidth: '760px', margin: '0 auto', padding: '2.5rem 1.5rem', background: '#FFFFFF', minHeight: '100vh', fontFamily: "'Inter', 'Helvetica Neue', Arial, sans-serif" },
+  back:        { display: 'inline-flex', alignItems: 'center', background: 'none', border: 'none', color: '#8A8779', cursor: 'pointer', fontSize: '14px', marginBottom: '1.5rem', padding: 0, fontFamily: 'inherit' },
+  title:       { color: '#0A1A2F', margin: '0 0 4px', fontSize: '22px', fontWeight: 600, fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
+  sub:         { color: '#8F6423', fontSize: '14px', fontWeight: 600, margin: '0 0 2rem' },
   section:     { marginBottom: '2.5rem' },
-  sectionTitle:{ color: '#aaa', fontSize: '13px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 1rem' },
-  muted:       { color: '#555', fontSize: '14px' },
-  err:         { color: '#ff6b6b', fontSize: '14px', marginBottom: '1rem' },
+  sectionTitle:{ color: '#8A8779', fontSize: '11.5px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 1rem', fontFamily: "'IBM Plex Mono', monospace" },
+  err:         { color: '#B3453B', fontSize: '14px', marginBottom: '1rem' },
   inviteForm:  { display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' },
-  input:       { flex: '1 1 220px', padding: '10px 14px', borderRadius: '8px', border: '1px solid #2a2a2a', background: '#151515', color: '#fff', fontSize: '14px' },
-  select:      { padding: '10px 12px', borderRadius: '8px', border: '1px solid #2a2a2a', background: '#151515', color: '#fff', fontSize: '13px' },
-  selectSmall: { padding: '6px 10px', borderRadius: '6px', border: '1px solid #2a2a2a', background: '#151515', color: '#aaa', fontSize: '12px' },
-  btnPrimary:  { padding: '10px 18px', borderRadius: '8px', background: '#6c5ce7', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '13px' },
-  btnGhostSmall:{ background: 'none', border: '1px solid #2a2a2a', borderRadius: '6px', color: '#ff6b6b', cursor: 'pointer', fontSize: '12px', padding: '6px 12px' },
-  btnGhost:    { padding: '9px 16px', borderRadius: '8px', background: 'transparent', color: '#aaa', border: '1px solid #2a2a2a', cursor: 'pointer', fontSize: '13px' },
-  row:         { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '10px', padding: '1rem 1.25rem', marginBottom: '10px', flexWrap: 'wrap', gap: '10px' },
-  rowName:     { color: '#fff', fontSize: '14px', fontWeight: 600, margin: '0 0 4px' },
-  rowMeta:     { color: '#666', fontSize: '12px', margin: 0 },
+  input:       { flex: '1 1 220px', padding: '10px 14px', borderRadius: '8px', border: '1px solid #E5E2DB', background: '#FFFFFF', color: '#2B2A26', fontSize: '14px', fontFamily: 'inherit' },
+  select:      { padding: '10px 12px', borderRadius: '8px', border: '1px solid #E5E2DB', background: '#FFFFFF', color: '#2B2A26', fontSize: '13px', fontFamily: 'inherit' },
+  selectSmall: { padding: '6px 10px', borderRadius: '6px', border: '1px solid #E5E2DB', background: '#FFFFFF', color: '#46443E', fontSize: '12px', fontFamily: 'inherit' },
+  btnPrimary:  { padding: '10px 18px', borderRadius: '8px', background: '#0A1A2F', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '13px', fontFamily: 'inherit' },
+  btnDisabled: { opacity: 0.55, cursor: 'default' },
+  btnGhostSmall:{ background: 'none', border: '1px solid #E3B9B3', borderRadius: '6px', color: '#B3453B', cursor: 'pointer', fontSize: '12px', padding: '6px 12px', fontFamily: 'inherit' },
+  btnGhost:    { display: 'inline-flex', alignItems: 'center', padding: '9px 16px', borderRadius: '8px', background: 'transparent', color: '#46443E', border: '1px solid #E5E2DB', cursor: 'pointer', fontSize: '13px', fontFamily: 'inherit' },
+  row:         { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '10px', padding: '1rem 1.25rem', marginBottom: '10px', flexWrap: 'wrap', gap: '10px' },
+  rowName:     { color: '#0A1A2F', fontSize: '14px', fontWeight: 600, margin: '0 0 4px' },
+  rowMeta:     { color: '#8A8779', fontSize: '12px', margin: 0 },
   rowControls: { display: 'flex', gap: '8px' },
 }

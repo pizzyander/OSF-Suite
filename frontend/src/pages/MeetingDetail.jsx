@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft } from 'lucide-react'
 import { api } from '../api'
 
 export default function MeetingDetail({ token }) {
@@ -16,7 +17,25 @@ export default function MeetingDetail({ token }) {
       .finally(() => setLoading(false))
   }, [id])
 
-  if (loading) return <div style={s.wrap}><p style={s.muted}>Loading...</p></div>
+  if (loading) return (
+    <div style={s.wrap}>
+      <div style={s.summaryBox}>
+        <div className="osf-detail-skel" style={{ width: '40%', height: '13px', marginBottom: '12px' }} />
+        <div className="osf-detail-skel" style={{ width: '95%', height: '11px', marginBottom: '8px' }} />
+        <div className="osf-detail-skel" style={{ width: '80%', height: '11px' }} />
+      </div>
+      <style>{`
+        @keyframes osfDetailShimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+        .osf-detail-skel {
+          border-radius: 4px;
+          background: linear-gradient(90deg, #EDEAE1 25%, #F7F3E9 37%, #EDEAE1 63%);
+          background-size: 400% 100%;
+          animation: osfDetailShimmer 1.6s ease-in-out infinite;
+        }
+        @media (prefers-reduced-motion: reduce) { .osf-detail-skel { animation: none; } }
+      `}</style>
+    </div>
+  )
   if (error)   return <div style={s.wrap}><p style={s.err}>{error}</p></div>
   if (!meeting) return null
 
@@ -31,20 +50,27 @@ export default function MeetingDetail({ token }) {
   })
 
   const dealColor = (score) => ({
-    background: score === 'hot'  ? '#2d1a1a' :
-                score === 'warm' ? '#2a2210' : '#1a1a2d',
-    color:      score === 'hot'  ? '#ff6b6b' :
-                score === 'warm' ? '#ffd93d' : '#6c8fff',
+    background: score === 'hot'  ? '#F7E9E7' :
+                score === 'warm' ? '#F6ECD9' : '#EAF0F5',
+    color:      score === 'hot'  ? '#B3453B' :
+                score === 'warm' ? '#8F6423' : '#2C5478',
+  })
+
+  const scorePillColor = (score) => ({
+    background: score >= 7 ? '#F1F5F1' : score >= 4 ? '#F6ECD9' : '#F7E9E7',
+    color:      score >= 7 ? '#3F6249' : score >= 4 ? '#8F6423' : '#B3453B',
   })
 
   return (
     <div style={s.wrap}>
-      <button style={s.back} onClick={() => navigate('/')}>← All meetings</button>
+      <button style={s.back} onClick={() => navigate('/')}>
+        <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> All meetings
+      </button>
 
       {/* Meeting header */}
       <div style={s.meetingHeader}>
         <div>
-          <h2 style={s.title}>Meeting Report</h2>
+          <h2 style={s.title}>Meeting report</h2>
           <p style={s.date}>{date} at {time}</p>
         </div>
         {mi?.deal_health?.score && (
@@ -132,11 +158,7 @@ export default function MeetingDetail({ token }) {
               <div key={i} style={s.objCard}>
                 <p style={s.objQ}>"{o.client_objection}"</p>
                 <div style={s.objScore}>
-                  <span style={{
-                    ...s.scorePill,
-                    background: o.effectiveness_score_out_of_10 >= 7 ? '#0a2a1a' : o.effectiveness_score_out_of_10 >= 4 ? '#2a2210' : '#2d1a1a',
-                    color:      o.effectiveness_score_out_of_10 >= 7 ? '#6bffb8' : o.effectiveness_score_out_of_10 >= 4 ? '#ffd93d' : '#ff6b6b',
-                  }}>
+                  <span style={{ ...s.scorePill, ...scorePillColor(o.effectiveness_score_out_of_10) }}>
                     {o.effectiveness_score_out_of_10}/10
                   </span>
                 </div>
@@ -221,53 +243,52 @@ function Metric({ label, value }) {
 }
 
 const s = {
-  wrap:          { maxWidth: '1000px', margin: '0 auto', padding: '2rem 1rem', background: '#0f0f0f', minHeight: '100vh' },
-  back:          { background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '14px', marginBottom: '1.5rem', padding: 0 },
+  wrap:          { maxWidth: '1000px', margin: '0 auto', padding: '2.5rem 1.5rem', background: '#FFFFFF', minHeight: '100vh', fontFamily: "'Inter', 'Helvetica Neue', Arial, sans-serif" },
+  back:          { display: 'inline-flex', alignItems: 'center', background: 'none', border: 'none', color: '#8A8779', cursor: 'pointer', fontSize: '14px', marginBottom: '1.5rem', padding: 0, fontFamily: 'inherit' },
   meetingHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' },
-  title:         { color: '#fff', margin: '0 0 6px', fontSize: '22px', fontWeight: 600 },
-  date:          { color: '#555', margin: 0, fontSize: '14px' },
+  title:         { color: '#0A1A2F', margin: '0 0 6px', fontSize: '22px', fontWeight: 600, fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
+  date:          { color: '#8A8779', margin: 0, fontSize: '14px' },
   dealBadge:     { fontSize: '12px', fontWeight: 700, padding: '6px 16px', borderRadius: '20px', letterSpacing: '0.05em' },
-  summaryBox:    { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '10px', padding: '1.25rem', marginBottom: '1.5rem' },
-  summaryText:   { color: '#ccc', fontSize: '15px', margin: 0, lineHeight: 1.7 },
-  gradeRow:      { display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '10px', padding: '1.25rem' },
+  summaryBox:    { background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '10px', padding: '1.25rem', marginBottom: '1.5rem' },
+  summaryText:   { color: '#46443E', fontSize: '15px', margin: 0, lineHeight: 1.7 },
+  gradeRow:      { display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem', background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '10px', padding: '1.25rem' },
   gradeBox:      { display: 'flex', alignItems: 'baseline', gap: '4px', flexShrink: 0 },
-  gradeNum:      { color: '#6c5ce7', fontSize: '52px', fontWeight: 700, lineHeight: 1 },
-  gradeLabel:    { color: '#555', fontSize: '18px' },
-  gradeHeadline: { color: '#aaa', fontSize: '15px', margin: 0, lineHeight: 1.5 },
+  gradeNum:      { color: '#0A1A2F', fontSize: '52px', fontWeight: 700, lineHeight: 1, fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
+  gradeLabel:    { color: '#8A8779', fontSize: '18px' },
+  gradeHeadline: { color: '#46443E', fontSize: '15px', margin: 0, lineHeight: 1.5 },
   metricsRow:    { display: 'flex', gap: '12px', marginBottom: '2rem', flexWrap: 'wrap' },
   cols:          { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '2rem' },
   col:           { display: 'flex', flexDirection: 'column', gap: '0' },
-  bodyText:      { color: '#bbb', fontSize: '14px', margin: '0 0 10px', lineHeight: 1.6 },
-  metaLabel:     { color: '#555', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' },
+  bodyText:      { color: '#46443E', fontSize: '14px', margin: '0 0 10px', lineHeight: 1.6 },
+  metaLabel:     { color: '#8A8779', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' },
   actionItem:    { display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' },
-  ownerBadge:    { background: '#1e1a3a', color: '#6c5ce7', fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 },
-  actionText:    { color: '#bbb', fontSize: '14px', lineHeight: 1.5 },
-  deadline:      { color: '#555', fontSize: '12px', marginLeft: 'auto' },
-  objCard:       { background: '#111', border: '1px solid #222', borderRadius: '8px', padding: '1rem', marginBottom: '10px' },
-  objQ:          { color: '#fff', fontSize: '14px', margin: '0 0 8px', fontStyle: 'italic' },
+  ownerBadge:    { background: '#EAF0F5', color: '#2C5478', fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '4px', whiteSpace: 'nowrap', flexShrink: 0 },
+  actionText:    { color: '#46443E', fontSize: '14px', lineHeight: 1.5 },
+  deadline:      { color: '#8A8779', fontSize: '12px', marginLeft: 'auto' },
+  objCard:       { background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '8px', padding: '1rem', marginBottom: '10px' },
+  objQ:          { color: '#0A1A2F', fontSize: '14px', margin: '0 0 8px', fontStyle: 'italic' },
   objScore:      { marginBottom: '8px' },
   scorePill:     { fontSize: '11px', fontWeight: 700, padding: '3px 10px', borderRadius: '20px' },
-  objCritique:   { color: '#888', fontSize: '13px', margin: '0 0 10px', lineHeight: 1.6 },
-  scriptBox:     { background: '#0a1a0a', border: '1px solid #1a3a1a', borderRadius: '6px', padding: '10px' },
-  scriptLabel:   { color: '#3a7a3a', fontSize: '11px', fontWeight: 600, margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.06em' },
-  scriptText:    { color: '#6bffb8', fontSize: '13px', margin: 0, lineHeight: 1.6 },
-  cueCard:       { background: '#111', border: '1px solid #222', borderRadius: '8px', padding: '1rem', marginBottom: '10px' },
-  cueContext:    { color: '#666', fontSize: '12px', margin: '0 0 6px' },
-  cueSignal:     { color: '#ffd93d', fontSize: '13px', margin: '0 0 4px' },
-  cueMissed:     { color: '#ff6b6b', fontSize: '13px', margin: 0 },
+  objCritique:   { color: '#8A8779', fontSize: '13px', margin: '0 0 10px', lineHeight: 1.6 },
+  scriptBox:     { background: '#F1F5F1', border: '1px solid #D9E4DA', borderRadius: '6px', padding: '10px' },
+  scriptLabel:   { color: '#3F6249', fontSize: '11px', fontWeight: 600, margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.06em' },
+  scriptText:    { color: '#3F6249', fontSize: '13px', margin: 0, lineHeight: 1.6 },
+  cueCard:       { background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '8px', padding: '1rem', marginBottom: '10px' },
+  cueContext:    { color: '#8A8779', fontSize: '12px', margin: '0 0 6px' },
+  cueSignal:     { color: '#8F6423', fontSize: '13px', margin: '0 0 4px' },
+  cueMissed:     { color: '#B3453B', fontSize: '13px', margin: 0 },
   topAction:     { display: 'flex', alignItems: 'flex-start', gap: '10px', marginBottom: '10px' },
-  topNum:        { color: '#6c5ce7', fontWeight: 700, fontSize: '18px', lineHeight: 1, flexShrink: 0 },
-  muted:         { color: '#555', fontSize: '14px' },
-  err:           { color: '#ff6b6b', fontSize: '14px' },
-  transcript:    { color: '#555', fontSize: '13px', lineHeight: 1.8, whiteSpace: 'pre-wrap', fontFamily: 'monospace', margin: 0 },
+  topNum:        { color: '#8F6423', fontWeight: 700, fontSize: '18px', lineHeight: 1, flexShrink: 0, fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
+  err:           { color: '#B3453B', fontSize: '14px' },
+  transcript:    { color: '#8A8779', fontSize: '13px', lineHeight: 1.8, whiteSpace: 'pre-wrap', fontFamily: "'IBM Plex Mono', monospace", margin: 0 },
 }
 
 const ss = {
   section:      { marginBottom: '1.5rem' },
-  sectionTitle: { color: '#aaa', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 12px', paddingBottom: '8px', borderBottom: '1px solid #1a1a1a' },
-  listItem:     { color: '#bbb', fontSize: '14px', margin: '0 0 6px', lineHeight: 1.5 },
-  metaLabel:    { color: '#555', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' },
-  metric:       { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', padding: '12px 20px', textAlign: 'center', flex: 1, minWidth: '80px' },
-  metricValue:  { display: 'block', color: '#fff', fontSize: '22px', fontWeight: 600 },
-  metricLabel:  { display: 'block', color: '#555', fontSize: '12px', marginTop: '4px' },
+  sectionTitle: { color: '#8A8779', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 12px', paddingBottom: '8px', borderBottom: '1px solid #E5E2DB', fontFamily: "'IBM Plex Mono', monospace" },
+  listItem:     { color: '#46443E', fontSize: '14px', margin: '0 0 6px', lineHeight: 1.5 },
+  metaLabel:    { color: '#8A8779', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 6px' },
+  metric:       { background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '8px', padding: '12px 20px', textAlign: 'center', flex: 1, minWidth: '80px' },
+  metricValue:  { display: 'block', color: '#0A1A2F', fontSize: '22px', fontWeight: 600, fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
+  metricLabel:  { display: 'block', color: '#8A8779', fontSize: '12px', marginTop: '4px' },
 }

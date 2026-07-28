@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Mic, Upload, ArrowLeft, ArrowRight } from 'lucide-react'
 import { api } from '../api'
 import { useLiveTranscription } from '../hooks/useLiveTranscription' // adjust path to wherever you saved the hook
 
@@ -27,7 +28,7 @@ export default function Meeting({ token }) {
   const navigate = useNavigate()
 
   // The hook re-renders its `start`/`stop` functions whenever `meetingId`
-  // changes — so we can't call start() in the same tick we set meetingId,
+  // changes, so we can't call start() in the same tick we set meetingId,
   // we have to wait for the re-render (handled by the effect below).
   const {
     start: startLiveAudio,
@@ -61,7 +62,7 @@ export default function Meeting({ token }) {
   // Reflect the hook's connection status into our own status message.
   // SESSION_EXPIRED is a specific signal from the backend (a rejected
   // WebSocket handshake, close code 4401) meaning the access token died
-  // sometime between page load and clicking "Live recording" — distinct
+  // sometime between page load and clicking "Live recording", distinct
   // from a generic network/connection failure, so the user knows exactly
   // what to do about it instead of just "something went wrong."
   useEffect(() => {
@@ -70,7 +71,7 @@ export default function Meeting({ token }) {
     if (liveStatus === 'error') {
       setStatus(
         liveError === 'SESSION_EXPIRED'
-          ? 'Your session expired — please log out and log back in to start a live recording.'
+          ? 'Your session expired. Please log out and log back in to start a live recording.'
           : `Live transcription error: ${liveError}`
       )
     }
@@ -99,12 +100,12 @@ export default function Meeting({ token }) {
   const stopLive = () => {
     // Closing the WebSocket (after sending {"type": "end"}, handled inside
     // the hook) is the signal our backend uses to know the meeting has
-    // ended deliberately — it assembles the final transcript from
+    // ended deliberately. It assembles the final transcript from
     // everything Deepgram sent during the session and queues analysis
     // itself. The frontend doesn't need to declare a chunk count anymore.
     stopLiveAudio()
     setFinalizing(true)
-    setStatus('Finalizing transcript — running analysis engine...')
+    setStatus('Finalizing transcript, running analysis engine...')
     startPolling(meetingIdRef.current)
   }
 
@@ -158,21 +159,31 @@ export default function Meeting({ token }) {
     }
   }
 
+  const dealColor = (score) =>
+    score === 'hot'  ? '#B3453B' :
+    score === 'warm' ? '#8F6423' : '#2C5478'
+
+  const dealBg = (score) =>
+    score === 'hot'  ? '#F7E9E7' :
+    score === 'warm' ? '#F6ECD9' : '#EAF0F5'
+
   // ── Results view ──────────────────────────────────────────────────────────
   if (meeting?.status === 'done') {
     const mi = meeting.insights?.meeting_intelligence
     const co = meeting.insights?.coaching
     return (
       <div style={styles.wrap}>
-        <button style={styles.back} onClick={() => navigate('/')}>← Dashboard</button>
+        <button style={styles.back} onClick={() => navigate('/')}>
+          <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> Dashboard
+        </button>
         <div style={styles.section}>
-          <h2 style={styles.title}>Meeting Intelligence</h2>
+          <h2 style={styles.title}>Meeting intelligence</h2>
           <p style={styles.summary}>{mi?.summary}</p>
           <div style={styles.row}>
             <div style={{
               ...styles.badge,
-              background: mi?.deal_health?.score === 'hot' ? '#2d1a1a' : mi?.deal_health?.score === 'warm' ? '#2a2210' : '#1a1a2d',
-              color:      mi?.deal_health?.score === 'hot' ? '#ff6b6b' : mi?.deal_health?.score === 'warm' ? '#ffd93d' : '#6c8fff'
+              background: dealBg(mi?.deal_health?.score),
+              color: dealColor(mi?.deal_health?.score),
             }}>
               {mi?.deal_health?.score?.toUpperCase()}
             </div>
@@ -185,10 +196,10 @@ export default function Meeting({ token }) {
         </div>
         {co && (
           <div style={styles.section}>
-            <h2 style={styles.title}>Coaching Report</h2>
+            <h2 style={styles.title}>Coaching report</h2>
             <div style={styles.scoreRow}>
               <span style={styles.score}>{co.overall_grade?.score_out_of_100}</span>
-              <span style={styles.scoreLabel}>/100 — {co.overall_grade?.headline_summary}</span>
+              <span style={styles.scoreLabel}>/100 · {co.overall_grade?.headline_summary}</span>
             </div>
             <div style={styles.metrics}>
               <Metric label="Agent talk"  value={`${co.metrics?.agent_talk_ratio_percentage}%`} />
@@ -201,7 +212,10 @@ export default function Meeting({ token }) {
                 <p style={styles.objQ}>"{o.client_objection}"</p>
                 <p style={styles.objMeta}>Effectiveness: {o.effectiveness_score_out_of_10}/10</p>
                 <p style={styles.objCritique}>{o.coaching_critique}</p>
-                <p style={styles.objScript}>→ "{o.exact_alternative_script}"</p>
+                <p style={styles.objScript}>
+                  <ArrowRight size={13} style={{ verticalAlign: '-2px', marginRight: '5px', flexShrink: 0, marginTop: '2px' }} />
+                  "{o.exact_alternative_script}"
+                </p>
               </div>
             ))}
             <Grid label="Top 3 action items" items={co.top_three_action_items} />
@@ -214,18 +228,20 @@ export default function Meeting({ token }) {
   // ── Recording / upload view ───────────────────────────────────────────────
   return (
     <div style={styles.wrap}>
-      <button style={styles.back} onClick={() => navigate('/')}>← Dashboard</button>
-      <h2 style={styles.title}>New Meeting</h2>
+      <button style={styles.back} onClick={() => navigate('/')}>
+        <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> Dashboard
+      </button>
+      <h2 style={styles.title}>New meeting</h2>
 
       {mode === 'idle' && (
         <div style={styles.modeRow}>
           <div style={styles.modeCard} onClick={startLive}>
-            <span style={styles.modeIcon}>🎙</span>
+            <span style={styles.modeIconWrap}><Mic size={20} /></span>
             <span style={styles.modeLabel}>Live recording</span>
             <span style={styles.modeSub}>Captions appear as you speak · live speaker labels</span>
           </div>
           <div style={styles.modeCard} onClick={() => setMode('upload')}>
-            <span style={styles.modeIcon}>📁</span>
+            <span style={styles.modeIconWrap}><Upload size={20} /></span>
             <span style={styles.modeLabel}>Upload file</span>
             <span style={styles.modeSub}>Upload an existing recording</span>
           </div>
@@ -236,8 +252,8 @@ export default function Meeting({ token }) {
         <div style={styles.liveBox}>
           <div style={{
             ...styles.recDot,
-            background: liveStatus === 'live' ? '#ff6b6b' : '#555',
-            animation: liveStatus === 'live' ? 'pulse 1.5s ease-in-out infinite' : 'none'
+            background: liveStatus === 'live' ? '#E0645A' : '#D8D4C9',
+            animation: liveStatus === 'live' ? 'osfMeetingPulse 1.5s ease-in-out infinite' : 'none'
           }} />
           <p style={styles.recLabel}>
             {liveStatus === 'connecting' && 'Connecting...'}
@@ -245,25 +261,28 @@ export default function Meeting({ token }) {
             {liveStatus === 'error'      && status}
           </p>
 
-          {/* Live coaching nudges — objections, buying signals, and periodic
+          {/* Live coaching nudges: objections, buying signals, and periodic
               call-health checks (talk ratio, discovery gaps, closing).
               Rendered above the transcript since these are the thing a
-              rep needs to notice INSTANTLY, mid-conversation. */}
+              rep needs to notice instantly, mid-conversation. */}
           {nudges.length > 0 && (
             <div style={styles.nudgeStack}>
-              {nudges.map(n => (
-                <div key={n.id} style={{ ...styles.nudgeCard, ...nudgeStyleFor(n.category) }}>
-                  <span style={styles.nudgeLabel}>{nudgeLabelFor(n.category)}</span>
-                  <p style={styles.nudgeText}>{n.text}</p>
-                </div>
-              ))}
+              {nudges.map(n => {
+                const nStyle = nudgeStyleFor(n.category)
+                return (
+                  <div key={n.id} style={{ ...styles.nudgeCard, borderColor: nStyle.border, background: nStyle.background }}>
+                    <span style={{ ...styles.nudgeLabel, color: nStyle.label }}>{nudgeLabelFor(n.category)}</span>
+                    <p style={styles.nudgeText}>{n.text}</p>
+                  </div>
+                )
+              })}
             </div>
           )}
 
-          {/* Live captions — auto-scrolling transcript as Deepgram sends it back */}
+          {/* Live captions: auto-scrolling transcript as Deepgram sends it back */}
           <div style={styles.captionsBox}>
             {segments.length === 0 && (
-              <p style={styles.captionPlaceholder}>Start talking — your words will appear here in real time.</p>
+              <p style={styles.captionPlaceholder}>Start talking, your words will appear here in real time.</p>
             )}
             {segments.map((seg, i) => (
               <p key={i} style={{ ...styles.captionLine, opacity: seg.isFinal ? 1 : 0.55 }}>
@@ -273,13 +292,20 @@ export default function Meeting({ token }) {
           </div>
 
           <button style={styles.btnStop} onClick={stopLive} disabled={liveStatus !== 'live'}>
-            Stop & Analyze
+            Stop & analyze
           </button>
         </div>
       )}
 
       {mode === 'live' && finalizing && (
-        <p style={styles.status}>{status}</p>
+        <div style={styles.finalizingBox}>
+          <div style={styles.skelGroup}>
+            <div className="osf-meeting-skel" style={{ ...styles.skelBar, width: '55%' }} />
+            <div className="osf-meeting-skel" style={{ ...styles.skelBar, width: '85%' }} />
+            <div className="osf-meeting-skel" style={{ ...styles.skelBar, width: '70%' }} />
+          </div>
+          <p style={styles.status}>{status}</p>
+        </div>
       )}
 
       {mode === 'upload' && !uploading && (
@@ -287,22 +313,43 @@ export default function Meeting({ token }) {
           <input type="file" accept=".ogg,.mp3,.wav,.m4a,.mp4,.webm"
             onChange={e => setFile(e.target.files[0])} style={styles.fileInput} />
           {file && <p style={styles.filename}>{file.name}</p>}
-          <button style={styles.btn} onClick={runUpload} disabled={!file}>
+          <button style={{ ...styles.btn, ...(!file ? styles.btnDisabled : {}) }} onClick={runUpload} disabled={!file}>
             Analyze meeting
           </button>
         </>
       )}
 
-      {status && mode !== 'live' && <p style={styles.status}>{status}</p>}
+      {uploading && (
+        <div style={styles.skelGroup}>
+          <div className="osf-meeting-skel" style={{ ...styles.skelBar, width: '60%' }} />
+          <div className="osf-meeting-skel" style={{ ...styles.skelBar, width: '40%' }} />
+        </div>
+      )}
+
+      {status && mode !== 'live' && !uploading && <p style={styles.status}>{status}</p>}
+
+      <style>{`
+        @keyframes osfMeetingPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+        @keyframes osfMeetingFadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes osfMeetingShimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+        .osf-meeting-skel {
+          border-radius: 5px;
+          background: linear-gradient(90deg, #EDEAE1 25%, #F7F3E9 37%, #EDEAE1 63%);
+          background-size: 400% 100%;
+          animation: osfMeetingShimmer 1.6s ease-in-out infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .osf-meeting-skel { animation: none; }
+        }
+      `}</style>
     </div>
   )
 }
 
-// Maps each nudge category to a short human label and a distinct color —
-// objections (needs attention, red-orange) read differently at a glance
-// from buying signals (good news, green) or call-health checks (neutral,
-// blue), so a rep can react to the right one on instinct without reading
-// closely mid-conversation.
+// Maps each nudge category to a short human label and a distinct color set.
+// Objections (needs attention) read differently at a glance from buying
+// signals (good news) or call-health checks (neutral), so a rep can react
+// to the right one on instinct without reading closely mid-conversation.
 function nudgeLabelFor(category) {
   return {
     objection:     'Objection raised',
@@ -314,9 +361,9 @@ function nudgeLabelFor(category) {
 }
 
 function nudgeStyleFor(category) {
-  if (category === 'objection')     return { borderColor: '#ff6b6b', background: '#2d1a1a' }
-  if (category === 'buying_signal') return { borderColor: '#6bffb8', background: '#0f2418' }
-  return { borderColor: '#6c8fff', background: '#1a1a2d' } // talk_ratio, discovery_gap, closing, fallback
+  if (category === 'objection')     return { border: '#E3B9B3', background: '#F7E9E7', label: '#B3453B' }
+  if (category === 'buying_signal') return { border: '#C9DDC9', background: '#F1F5F1', label: '#3F6249' }
+  return { border: '#C7D6E3', background: '#EAF0F5', label: '#2C5478' } // talk_ratio, discovery_gap, closing, fallback
 }
 
 function Grid({ label, items }) {
@@ -339,47 +386,51 @@ function Metric({ label, value }) {
 }
 
 const styles = {
-  wrap:        { maxWidth: '860px', margin: '0 auto', padding: '2rem 1rem', background: '#0f0f0f', minHeight: '100vh' },
-  back:        { background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '14px', marginBottom: '1.5rem', padding: 0 },
-  title:       { color: '#fff', margin: '0 0 1.5rem', fontSize: '22px', fontWeight: 600 },
+  wrap:        { maxWidth: '860px', margin: '0 auto', padding: '2.5rem 1.5rem', background: '#FFFFFF', minHeight: '100vh', fontFamily: "'Inter', 'Helvetica Neue', Arial, sans-serif" },
+  back:        { display: 'inline-flex', alignItems: 'center', background: 'none', border: 'none', color: '#8A8779', cursor: 'pointer', fontSize: '14px', marginBottom: '1.5rem', padding: 0, fontFamily: 'inherit' },
+  title:       { color: '#0A1A2F', margin: '0 0 1.5rem', fontSize: '22px', fontWeight: 600, fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
   section:     { marginBottom: '3rem' },
-  summary:     { color: '#ccc', fontSize: '15px', lineHeight: 1.7, margin: '0 0 1.5rem' },
+  summary:     { color: '#46443E', fontSize: '15px', lineHeight: 1.7, margin: '0 0 1.5rem' },
   row:         { display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '1.5rem', flexWrap: 'wrap' },
   badge:       { fontSize: '11px', fontWeight: 700, padding: '4px 12px', borderRadius: '20px', letterSpacing: '0.05em', whiteSpace: 'nowrap' },
-  reasoning:   { color: '#888', fontSize: '14px', margin: 0, lineHeight: 1.6 },
-  gridLabel:   { color: '#aaa', fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 8px' },
-  gridItem:    { color: '#ccc', fontSize: '14px', margin: '0 0 6px', lineHeight: 1.5 },
+  reasoning:   { color: '#8A8779', fontSize: '14px', margin: 0, lineHeight: 1.6 },
+  gridLabel:   { color: '#8A8779', fontSize: '11.5px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 8px', fontFamily: "'IBM Plex Mono', monospace" },
+  gridItem:    { color: '#46443E', fontSize: '14px', margin: '0 0 6px', lineHeight: 1.5 },
   scoreRow:    { display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '1.5rem' },
-  score:       { color: '#6c5ce7', fontSize: '48px', fontWeight: 700, lineHeight: 1 },
-  scoreLabel:  { color: '#aaa', fontSize: '15px' },
+  score:       { color: '#0A1A2F', fontSize: '48px', fontWeight: 700, lineHeight: 1, fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
+  scoreLabel:  { color: '#8A8779', fontSize: '15px' },
   metrics:     { display: 'flex', gap: '16px', marginBottom: '2rem', flexWrap: 'wrap' },
-  metric:      { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '8px', padding: '12px 20px', textAlign: 'center' },
-  metricValue: { display: 'block', color: '#fff', fontSize: '22px', fontWeight: 600 },
-  metricLabel: { display: 'block', color: '#555', fontSize: '12px', marginTop: '4px' },
-  objCard:     { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '10px', padding: '1.25rem', marginBottom: '12px' },
-  objQ:        { color: '#fff', fontSize: '14px', margin: '0 0 8px', fontStyle: 'italic' },
-  objMeta:     { color: '#666', fontSize: '12px', margin: '0 0 8px' },
-  objCritique: { color: '#aaa', fontSize: '14px', margin: '0 0 10px', lineHeight: 1.6 },
-  objScript:   { color: '#6bffb8', fontSize: '14px', margin: 0, lineHeight: 1.6 },
+  metric:      { background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '8px', padding: '12px 20px', textAlign: 'center' },
+  metricValue: { display: 'block', color: '#0A1A2F', fontSize: '22px', fontWeight: 600, fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
+  metricLabel: { display: 'block', color: '#8A8779', fontSize: '12px', marginTop: '4px' },
+  objCard:     { background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '10px', padding: '1.25rem', marginBottom: '12px' },
+  objQ:        { color: '#0A1A2F', fontSize: '14px', margin: '0 0 8px', fontStyle: 'italic' },
+  objMeta:     { color: '#8A8779', fontSize: '12px', margin: '0 0 8px' },
+  objCritique: { color: '#46443E', fontSize: '14px', margin: '0 0 10px', lineHeight: 1.6 },
+  objScript:   { color: '#8F6423', fontSize: '14px', margin: 0, lineHeight: 1.6, display: 'flex', alignItems: 'flex-start' },
   modeRow:     { display: 'flex', gap: '16px', flexWrap: 'wrap' },
-  modeCard:    { flex: 1, minWidth: '200px', background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '12px', padding: '2rem 1.5rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '8px' },
-  modeIcon:    { fontSize: '28px' },
-  modeLabel:   { color: '#fff', fontSize: '16px', fontWeight: 600 },
-  modeSub:     { color: '#555', fontSize: '13px', lineHeight: 1.5 },
-  liveBox:     { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '12px', padding: '2.5rem', textAlign: 'center' },
+  modeCard:    { flex: 1, minWidth: '200px', background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '12px', padding: '2rem 1.5rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '8px' },
+  modeIconWrap:{ width: '38px', height: '38px', borderRadius: '10px', background: '#F6ECD9', color: '#8F6423', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '4px' },
+  modeLabel:   { color: '#0A1A2F', fontSize: '16px', fontWeight: 600 },
+  modeSub:     { color: '#8A8779', fontSize: '13px', lineHeight: 1.5 },
+  liveBox:     { background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '12px', padding: '2.5rem', textAlign: 'center' },
   recDot:      { width: '14px', height: '14px', borderRadius: '50%', margin: '0 auto 1.5rem' },
-  recLabel:    { color: '#fff', fontSize: '18px', fontWeight: 600, margin: '0 0 1.5rem' },
-  captionsBox: { background: '#111', border: '1px solid #2a2a2a', borderRadius: '10px', padding: '1.25rem', marginBottom: '1.5rem', maxHeight: '320px', overflowY: 'auto', textAlign: 'left' },
+  recLabel:    { color: '#0A1A2F', fontSize: '18px', fontWeight: 600, margin: '0 0 1.5rem' },
+  captionsBox: { background: '#FFFFFF', border: '1px solid #E5E2DB', borderRadius: '10px', padding: '1.25rem', marginBottom: '1.5rem', maxHeight: '320px', overflowY: 'auto', textAlign: 'left' },
   nudgeStack:  { display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '1.5rem', textAlign: 'left' },
-  nudgeCard:   { border: '1px solid', borderRadius: '10px', padding: '0.9rem 1.1rem', animation: 'fadeIn 0.3s ease' },
-  nudgeLabel:  { display: 'block', fontSize: '11px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', opacity: 0.75, marginBottom: '4px', color: '#fff' },
-  nudgeText:   { color: '#fff', fontSize: '14px', lineHeight: 1.5, margin: 0, fontWeight: 500 },
-  captionPlaceholder: { color: '#444', fontSize: '13px', fontStyle: 'italic', margin: 0 },
-  captionLine: { color: '#ddd', fontSize: '14px', lineHeight: 1.7, margin: '0 0 8px' },
-  captionSpeaker: { color: '#6c5ce7', fontWeight: 600 },
-  btnStop:     { padding: '11px 28px', borderRadius: '8px', background: '#ff6b6b', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '14px' },
-  fileInput:   { color: '#aaa', fontSize: '14px', marginBottom: '8px' },
-  filename:    { color: '#666', fontSize: '13px', margin: '0 0 1rem' },
-  status:      { color: '#ffd93d', fontSize: '13px', margin: '1rem 0' },
-  btn:         { padding: '11px 24px', borderRadius: '8px', background: '#6c5ce7', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '14px' },
+  nudgeCard:   { border: '1px solid', borderRadius: '10px', padding: '0.9rem 1.1rem', animation: 'osfMeetingFadeIn 0.3s ease' },
+  nudgeLabel:  { display: 'block', fontSize: '11px', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: '4px' },
+  nudgeText:   { color: '#2B2A26', fontSize: '14px', lineHeight: 1.5, margin: 0, fontWeight: 500 },
+  captionPlaceholder: { color: '#8A8779', fontSize: '13px', fontStyle: 'italic', margin: 0 },
+  captionLine: { color: '#46443E', fontSize: '14px', lineHeight: 1.7, margin: '0 0 8px' },
+  captionSpeaker: { color: '#2C5478', fontWeight: 600 },
+  btnStop:     { padding: '11px 28px', borderRadius: '8px', background: '#B3453B', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '14px', fontFamily: 'inherit' },
+  finalizingBox:{ background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '12px', padding: '2.5rem', textAlign: 'center' },
+  skelGroup:   { display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center', marginBottom: '1rem' },
+  skelBar:     { height: '11px', borderRadius: '5px' },
+  fileInput:   { color: '#46443E', fontSize: '14px', marginBottom: '8px' },
+  filename:    { color: '#8A8779', fontSize: '13px', margin: '0 0 1rem' },
+  status:      { color: '#1B3A5C', fontSize: '13px', margin: '1rem 0' },
+  btn:         { padding: '11px 24px', borderRadius: '8px', background: '#0A1A2F', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '14px', fontFamily: 'inherit' },
+  btnDisabled: { opacity: 0.55, cursor: 'default' },
 }

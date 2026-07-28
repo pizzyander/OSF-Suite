@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Check, ArrowLeft } from 'lucide-react'
 import { api } from '../api'
 
 const INDIVIDUAL_PLANS = [
@@ -34,7 +35,7 @@ const INDIVIDUAL_PLANS = [
     label: '1 Year',
     price: 605000,
     unit: '/ year',
-    tagline: 'Best value — save 5%',
+    tagline: 'Best value, save 5%',
     highlight: true,
     benefits: [
       'Everything in the monthly plan',
@@ -55,7 +56,7 @@ const TEAM_PLAN = {
   benefits: [
     'Everything in the individual plan, for every rep',
     'Shared company context across your whole team',
-    'Manager dashboards — deal health & coaching trends',
+    'Manager dashboards: deal health & coaching trends',
     'Team-wide winning-technique library',
     'Admin controls: invites, roles, reporting lines',
   ],
@@ -83,7 +84,9 @@ export default function Pricing({ token, profile }) {
 
   return (
     <div style={s.wrap}>
-      <button style={s.back} onClick={() => navigate('/')}>← Dashboard</button>
+      <button style={s.back} onClick={() => navigate('/')}>
+        <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> Dashboard
+      </button>
       <h1 style={s.title}>Choose your plan</h1>
       <p style={s.sub}>7-day free trial on every plan. Your card is saved but not charged until the trial ends.</p>
 
@@ -95,19 +98,19 @@ export default function Pricing({ token, profile }) {
             <div key={plan.key} style={{ ...s.card, ...(plan.highlight ? s.cardHighlight : {}) }}>
               {plan.highlight && <span style={s.badge}>BEST VALUE</span>}
               <p style={s.planLabel}>{plan.label}</p>
-              <p style={s.tagline}>{plan.tagline}</p>
+              <p style={{ ...s.tagline, ...(plan.highlight ? {} : s.taglineMuted) }}>{plan.tagline}</p>
               <p style={s.price}>
                 ₦{plan.price.toLocaleString()}<span style={s.unit}>{plan.unit}</span>
               </p>
               <ul style={s.benefitList}>
                 {plan.benefits.map((b, i) => (
                   <li key={i} style={s.benefitItem}>
-                    <span style={s.check}>✓</span> {b}
+                    <span style={s.check}><Check size={13} strokeWidth={3} /></span> {b}
                   </li>
                 ))}
               </ul>
               <button
-                style={plan.highlight ? s.btnHighlight : s.btn}
+                style={{ ...(plan.highlight ? s.btnHighlight : s.btn), ...(loadingPlan !== null ? s.btnDisabled : {}) }}
                 onClick={() => startTrial(plan.key)}
                 disabled={loadingPlan !== null}
               >
@@ -128,7 +131,7 @@ export default function Pricing({ token, profile }) {
           <ul style={s.benefitList}>
             {TEAM_PLAN.benefits.map((b, i) => (
               <li key={i} style={s.benefitItem}>
-                <span style={s.check}>✓</span> {b}
+                <span style={s.check}><Check size={13} strokeWidth={3} /></span> {b}
               </li>
             ))}
           </ul>
@@ -149,7 +152,7 @@ export default function Pricing({ token, profile }) {
             <p style={s.adminNotice}>Only an org admin can manage billing for your team.</p>
           ) : (
             <button
-              style={s.btnHighlight}
+              style={{ ...s.btnHighlight, ...(loadingPlan !== null ? s.btnDisabled : {}) }}
               onClick={() => startTrial(TEAM_PLAN.key, seats)}
               disabled={loadingPlan !== null}
             >
@@ -163,28 +166,30 @@ export default function Pricing({ token, profile }) {
 }
 
 const s = {
-  wrap:       { maxWidth: '1000px', margin: '0 auto', padding: '2rem 1rem', background: '#0f0f0f', minHeight: '100vh' },
-  back:       { background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: '14px', marginBottom: '1.5rem', padding: 0 },
-  title:      { color: '#fff', margin: '0 0 8px', fontSize: '26px', fontWeight: 700, textAlign: 'center' },
-  sub:        { color: '#888', fontSize: '14px', textAlign: 'center', margin: '0 0 2.5rem' },
-  error:      { color: '#ff6b6b', fontSize: '14px', textAlign: 'center', marginBottom: '1.5rem' },
+  wrap:       { maxWidth: '1000px', margin: '0 auto', padding: '2.5rem 1.5rem', background: '#FFFFFF', minHeight: '100vh', fontFamily: "'Inter', 'Helvetica Neue', Arial, sans-serif" },
+  back:       { display: 'inline-flex', alignItems: 'center', background: 'none', border: 'none', color: '#8A8779', cursor: 'pointer', fontSize: '14px', marginBottom: '1.5rem', padding: 0, fontFamily: 'inherit' },
+  title:      { color: '#0A1A2F', margin: '0 0 8px', fontSize: '26px', fontWeight: 700, textAlign: 'center', fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
+  sub:        { color: '#8A8779', fontSize: '14px', textAlign: 'center', margin: '0 0 2.5rem' },
+  error:      { color: '#B3453B', fontSize: '14px', textAlign: 'center', marginBottom: '1.5rem' },
   grid:       { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' },
-  card:       { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '16px', padding: '1.75rem', display: 'flex', flexDirection: 'column', position: 'relative' },
-  cardHighlight: { border: '1.5px solid #6c5ce7', boxShadow: '0 0 0 1px #6c5ce7' },
-  badge:      { position: 'absolute', top: '-11px', left: '50%', transform: 'translateX(-50%)', background: '#6c5ce7', color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', padding: '4px 12px', borderRadius: '20px' },
-  planLabel:  { color: '#fff', fontSize: '18px', fontWeight: 700, margin: '0 0 2px' },
-  tagline:    { color: '#6c5ce7', fontSize: '13px', fontWeight: 600, margin: '0 0 1rem' },
-  price:      { color: '#fff', fontSize: '32px', fontWeight: 700, margin: '0 0 1.25rem' },
-  unit:       { color: '#666', fontSize: '14px', fontWeight: 500 },
+  card:       { background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '16px', padding: '1.75rem', display: 'flex', flexDirection: 'column', position: 'relative' },
+  cardHighlight: { border: '1.5px solid #B8863B', boxShadow: '0 0 0 1px #B8863B', background: '#FFFFFF' },
+  badge:      { position: 'absolute', top: '-11px', left: '50%', transform: 'translateX(-50%)', background: '#B8863B', color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em', padding: '4px 12px', borderRadius: '20px' },
+  planLabel:  { color: '#0A1A2F', fontSize: '18px', fontWeight: 700, margin: '0 0 2px', fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
+  tagline:    { color: '#8F6423', fontSize: '13px', fontWeight: 600, margin: '0 0 1rem' },
+  taglineMuted:{ color: '#8A8779' },
+  price:      { color: '#0A1A2F', fontSize: '32px', fontWeight: 700, margin: '0 0 1.25rem', fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
+  unit:       { color: '#8A8779', fontSize: '14px', fontWeight: 500 },
   benefitList:{ listStyle: 'none', padding: 0, margin: '0 0 1.5rem', flex: 1 },
-  benefitItem:{ color: '#ccc', fontSize: '13px', lineHeight: 1.6, marginBottom: '8px', display: 'flex', gap: '8px' },
-  check:      { color: '#6bffb8', fontWeight: 700, flexShrink: 0 },
-  btn:        { padding: '11px', borderRadius: '8px', background: '#2a2a2a', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '14px' },
-  btnHighlight:{ padding: '11px', borderRadius: '8px', background: '#6c5ce7', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '14px' },
-  teamCard:   { background: '#1a1a1a', border: '1.5px solid #6c5ce7', borderRadius: '16px', padding: '2rem', maxWidth: '440px', margin: '0 auto' },
+  benefitItem:{ color: '#46443E', fontSize: '13px', lineHeight: 1.6, marginBottom: '8px', display: 'flex', gap: '8px' },
+  check:      { color: '#3F6249', flexShrink: 0, display: 'flex', alignItems: 'center', marginTop: '2px' },
+  btn:        { padding: '11px', borderRadius: '8px', background: '#FFFFFF', color: '#0A1A2F', border: '1px solid #D8D4C9', fontWeight: 600, cursor: 'pointer', fontSize: '14px', fontFamily: 'inherit' },
+  btnHighlight:{ padding: '11px', borderRadius: '8px', background: '#B8863B', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '14px', fontFamily: 'inherit' },
+  btnDisabled:{ opacity: 0.55, cursor: 'default' },
+  teamCard:   { background: '#FFFFFF', border: '1.5px solid #B8863B', borderRadius: '16px', padding: '2rem', maxWidth: '440px', margin: '0 auto' },
   seatRow:    { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' },
-  seatLabel:  { color: '#aaa', fontSize: '13px' },
-  seatInput:  { width: '70px', padding: '8px', borderRadius: '6px', border: '1px solid #2a2a2a', background: '#111', color: '#fff', fontSize: '14px', textAlign: 'center' },
-  seatTotal:  { color: '#666', fontSize: '13px', margin: '0 0 1.5rem' },
-  adminNotice:{ color: '#ffd93d', fontSize: '13px', textAlign: 'center' },
+  seatLabel:  { color: '#46443E', fontSize: '13px' },
+  seatInput:  { width: '70px', padding: '8px', borderRadius: '6px', border: '1px solid #E5E2DB', background: '#FFFFFF', color: '#2B2A26', fontSize: '14px', textAlign: 'center', fontFamily: 'inherit' },
+  seatTotal:  { color: '#8A8779', fontSize: '13px', margin: '0 0 1.5rem' },
+  adminNotice:{ color: '#8F6423', fontSize: '13px', textAlign: 'center' },
 }

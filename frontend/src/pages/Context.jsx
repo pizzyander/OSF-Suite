@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { ArrowLeft } from 'lucide-react'
 import { api } from '../api'
 
 export default function Context({ token }) {
@@ -59,10 +60,12 @@ export default function Context({ token }) {
 
   return (
     <div style={s.wrap}>
-      <button style={s.back} onClick={() => navigate('/')}>← Back</button>
-      <h2 style={s.title}>Company Context</h2>
+      <button style={s.back} onClick={() => navigate('/')}>
+        <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> Back
+      </button>
+      <h2 style={s.title}>Company context</h2>
       <p style={s.sub}>
-        This is necessary so the AI can evaluates your performance
+        This is necessary so the AI can evaluate your performance
         against your own pricing, policies, and scripts.
       </p>
 
@@ -110,7 +113,7 @@ export default function Context({ token }) {
             value={text}
             onChange={e => setText(e.target.value)}
           />
-          <button style={s.btn} onClick={saveText} disabled={loading || !text.trim()}>
+          <button style={{ ...s.btn, ...(loading || !text.trim() ? s.btnDisabled : {}) }} onClick={saveText} disabled={loading || !text.trim()}>
             {loading ? 'Saving...' : 'Save context'}
           </button>
         </div>
@@ -120,11 +123,9 @@ export default function Context({ token }) {
       {tab === 'file' && (
         <div style={s.fileArea}>
           <p style={s.fileLabel}>
-
-            Upload a file about your company: company info, pricing tiers, scripts, policies...
-            Accepted formats: PDF, DOCX, TXT
-            
-            </p>
+            Upload a file about your company: company info, pricing tiers, scripts, policies.
+            Accepted formats: PDF, DOCX, TXT.
+          </p>
           <input
             type="file"
             accept=".pdf,.docx,.txt,.text"
@@ -136,7 +137,7 @@ export default function Context({ token }) {
               {file.name} ({(file.size / 1024).toFixed(1)} KB)
             </p>
           )}
-          <button style={s.btn} onClick={saveFile} disabled={loading || !file}>
+          <button style={{ ...s.btn, ...(loading || !file ? s.btnDisabled : {}) }} onClick={saveFile} disabled={loading || !file}>
             {loading ? 'Uploading...' : 'Upload file'}
           </button>
         </div>
@@ -145,7 +146,7 @@ export default function Context({ token }) {
       {status && (
         <p style={{
           ...s.statusMsg,
-          color: status.startsWith('Error') ? '#ff6b6b' : '#6bffb8'
+          color: status.startsWith('Error') ? '#B3453B' : '#3F6249'
         }}>
           {status}
         </p>
@@ -155,24 +156,25 @@ export default function Context({ token }) {
 }
 
 const s = {
-  wrap:        { maxWidth: '760px', margin: '0 auto', padding: '2rem 1rem', background: '#0f0f0f', minHeight: '100vh' },
-  back:        { background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '14px', marginBottom: '1.5rem', padding: 0 },
-  title:       { color: '#fff', margin: '0 0 8px', fontSize: '22px', fontWeight: 600 },
-  sub:         { color: '#555', fontSize: '14px', margin: '0 0 2rem', lineHeight: 1.6 },
-  card:        { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '10px', padding: '1.25rem', marginBottom: '2rem' },
+  wrap:        { maxWidth: '760px', margin: '0 auto', padding: '2.5rem 1.5rem', background: '#FFFFFF', minHeight: '100vh', fontFamily: "'Inter', 'Helvetica Neue', Arial, sans-serif" },
+  back:        { display: 'inline-flex', alignItems: 'center', background: 'none', border: 'none', color: '#8A8779', cursor: 'pointer', fontSize: '14px', marginBottom: '1.5rem', padding: 0, fontFamily: 'inherit' },
+  title:       { color: '#0A1A2F', margin: '0 0 8px', fontSize: '22px', fontWeight: 600, fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
+  sub:         { color: '#8A8779', fontSize: '14px', margin: '0 0 2rem', lineHeight: 1.6 },
+  card:        { background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '10px', padding: '1.25rem', marginBottom: '2rem' },
   cardTop:     { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' },
-  activeLabel: { color: '#6bffb8', fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' },
-  meta:        { color: '#444', fontSize: '12px', margin: '0 0 12px' },
-  preview:     { color: '#888', fontSize: '12px', whiteSpace: 'pre-wrap', margin: 0, lineHeight: 1.6, fontFamily: 'monospace' },
-  tabs:        { display: 'flex', gap: '0', marginBottom: '1.5rem', borderBottom: '1px solid #2a2a2a' },
-  tab:         { background: 'none', border: 'none', color: '#555', fontSize: '14px', cursor: 'pointer', padding: '10px 20px', borderBottom: '2px solid transparent', marginBottom: '-1px' },
-  tabActive:   { color: '#fff', borderBottomColor: '#6c5ce7' },
-  textarea:    { width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #2a2a2a', background: '#111', color: '#fff', fontSize: '14px', resize: 'vertical', boxSizing: 'border-box', display: 'block', marginBottom: '12px' },
+  activeLabel: { color: '#3F6249', fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' },
+  meta:        { color: '#8A8779', fontSize: '12px', margin: '0 0 12px' },
+  preview:     { color: '#46443E', fontSize: '12px', whiteSpace: 'pre-wrap', margin: 0, lineHeight: 1.6, fontFamily: "'IBM Plex Mono', monospace" },
+  tabs:        { display: 'flex', gap: '0', marginBottom: '1.5rem', borderBottom: '1px solid #E5E2DB' },
+  tab:         { background: 'none', border: 'none', color: '#8A8779', fontSize: '14px', cursor: 'pointer', padding: '10px 20px', borderBottom: '2px solid transparent', marginBottom: '-1px', fontFamily: 'inherit' },
+  tabActive:   { color: '#0A1A2F', borderBottomColor: '#0A1A2F' },
+  textarea:    { width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #E5E2DB', background: '#FFFFFF', color: '#2B2A26', fontSize: '14px', resize: 'vertical', boxSizing: 'border-box', display: 'block', marginBottom: '12px', fontFamily: 'inherit' },
   fileArea:    { display: 'flex', flexDirection: 'column', gap: '12px' },
-  fileLabel:   { color: '#555', fontSize: '13px', margin: 0 },
-  fileInput:   { color: '#aaa', fontSize: '14px' },
-  fileName:    { color: '#6bffb8', fontSize: '13px', margin: 0 },
-  btn:         { padding: '10px 20px', borderRadius: '8px', background: '#6c5ce7', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '14px' },
-  btnDanger:   { padding: '6px 12px', borderRadius: '6px', background: 'transparent', color: '#ff6b6b', border: '1px solid #ff6b6b33', cursor: 'pointer', fontSize: '12px' },
+  fileLabel:   { color: '#8A8779', fontSize: '13px', margin: 0, lineHeight: 1.5 },
+  fileInput:   { color: '#46443E', fontSize: '14px' },
+  fileName:    { color: '#3F6249', fontSize: '13px', margin: 0 },
+  btn:         { padding: '10px 20px', borderRadius: '8px', background: '#0A1A2F', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '14px', fontFamily: 'inherit' },
+  btnDisabled: { opacity: 0.55, cursor: 'default' },
+  btnDanger:   { padding: '6px 12px', borderRadius: '6px', background: 'transparent', color: '#B3453B', border: '1px solid #E3B9B3', cursor: 'pointer', fontSize: '12px', fontFamily: 'inherit' },
   statusMsg:   { fontSize: '13px', marginTop: '12px' },
 }

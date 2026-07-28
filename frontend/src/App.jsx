@@ -18,6 +18,7 @@ import Coaching from './pages/Coaching'
 import Pricing from './pages/Pricing'
 import BillingCallback from './pages/BillingCallback'
 import Billing from './pages/Billing'
+import OsfSuiteLandingPage from './pages/OsfSuiteLandingPage'
 
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem('osf_token'))
