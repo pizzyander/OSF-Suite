@@ -217,6 +217,7 @@ async def start_meeting(
     request: Request,
     agent: Agent = Depends(get_current_agent),
     db: AsyncSession = Depends(get_session),
+    _access = Depends(require_active_access),
     
 ):
     meeting_id = str(uuid.uuid4())

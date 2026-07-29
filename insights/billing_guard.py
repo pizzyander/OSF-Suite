@@ -18,7 +18,7 @@ Example (in main.py or wherever a route is defined):
 
 FastAPI resolves Depends() in the function signature regardless of
 argument order, so this can be added to any existing route without
-reshuffling its other parameters.
+reshuffling its other parameters. 
 """
 from datetime import datetime
 
