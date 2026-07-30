@@ -122,27 +122,21 @@ def send_coaching_plan_email(to_email: str, name: str, plan_text: str) -> bool:
 # ---------------------------------------------------------------------------
 # Billing
 # ---------------------------------------------------------------------------
+# NOTE: hard paywall as of this version — no trial period. The old
+# send_trial_started_email / send_trial_ending_soon_email are gone;
+# replaced with send_subscription_started_email, sent as soon as the
+# first (full) payment succeeds. If anything else in the codebase still
+# imports the old trial functions, update those call sites too.
 
-def send_trial_started_email(to_email: str, name: str, plan_label: str, trial_end_date: str) -> bool:
+def send_subscription_started_email(to_email: str, name: str, plan_label: str, amount: float, period_end_date: str) -> bool:
     html = f"""
     <p>Hi {name},</p>
-    <p>Your 7-day free trial is live — you selected the <strong>{plan_label}</strong> plan.</p>
-    <p>Your card is saved but you won't be charged until your trial ends on <strong>{trial_end_date}</strong>.</p>
+    <p>Your <strong>{plan_label}</strong> subscription is active — payment of <strong>₦{amount:,.0f}</strong> received.</p>
+    <p>Your access runs until <strong>{period_end_date}</strong>, after which it will renew automatically using your saved card.</p>
     """
-    text = f"Hi {name},\n\nYour 7-day free trial is live ({plan_label}). You won't be charged until {trial_end_date}."
-    return _send(to_email, "Your OSF-Suite trial has started", html, text)
-
-
-def send_trial_ending_soon_email(to_email: str, name: str, plan_label: str, amount: float, charge_date: str) -> bool:
-    html = f"""
-    <p>Hi {name},</p>
-    <p>Your free trial ends in 2 days. Your card will be charged <strong>₦{amount:,.0f}</strong> for the
-    <strong>{plan_label}</strong> plan on <strong>{charge_date}</strong>.</p>
-    <p>No action needed if you'd like to continue — this is just a heads up.</p>
-    """
-    text = (f"Hi {name},\n\nYour trial ends in 2 days. ₦{amount:,.0f} will be charged for {plan_label} "
-            f"on {charge_date}. No action needed to continue.")
-    return _send(to_email, "Your OSF-Suite trial ends in 2 days", html, text)
+    text = (f"Hi {name},\n\nYour {plan_label} subscription is active. Payment of ₦{amount:,.0f} received. "
+            f"Access runs until {period_end_date}, then renews automatically.")
+    return _send(to_email, "Your OSF-Suite subscription is active", html, text)
 
 
 def send_renewal_receipt_email(to_email: str, name: str, plan_label: str, amount: float, next_charge_date: str) -> bool:

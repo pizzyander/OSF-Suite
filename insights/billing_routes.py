@@ -1,6 +1,17 @@
 """
 billing_routes.py — checkout, Paystack webhook, and subscription status.
 
+CHANGED from the trial-based version:
+  - No trial period. The initial charge IS the subscription payment,
+    not a small card-verification amount that gets refunded.
+  - Subscription is created with status="active" and a real
+    current_period_end immediately upon successful payment — there is
+    no "trialing" state anymore.
+  - individual_2week price dropped to 12,000 (same unit convention the
+    codebase already used for `amount` — confirm this matches what
+    your Paystack integration expects, e.g. kobo vs. naira, since that
+    wasn't fully documented in the original code).
+
 Mount in main.py with:
     from billing_routes import router as billing_router
     app.include_router(billing_router)
@@ -18,18 +29,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db import get_session, Agent
 from db_billing import Subscription
 from auth import get_current_agent
-from mailer import send_trial_started_email
+from mailer import send_subscription_started_email
 import paystack_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/billing", tags=["Billing"])
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost")
-TRIAL_DAYS = 7
-CARD_VERIFICATION_AMOUNT = 100  # small NGN charge to obtain a reusable card token, refunded once the trial starts
 
 PLANS = {
-    "individual_2week":  {"label": "2 Weeks",  "amount": 28000,  "interval_days": 14},
+    "individual_2week":  {"label": "2 Weeks",  "amount": 12000,  "interval_days": 14},
     "individual_1month": {"label": "1 Month",  "amount": 53000,  "interval_days": 30},
     "individual_1year":  {"label": "1 Year",   "amount": 605000, "interval_days": 365},
     "team_monthly":       {"label": "Team (monthly)", "amount_per_seat": 139000, "interval_days": 30, "min_seats": 5},
@@ -44,11 +53,11 @@ def _resolve_owner(agent: Agent) -> tuple[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# POST /billing/start-trial — pick a plan, verify a card, trial begins
+# POST /billing/subscribe — pick a plan, pay in full, access starts immediately
 # ---------------------------------------------------------------------------
 
-@router.post("/start-trial")
-async def start_trial(
+@router.post("/subscribe")
+async def subscribe(
     payload: dict,
     agent: Agent = Depends(get_current_agent),
     db: AsyncSession = Depends(get_session)
@@ -74,21 +83,26 @@ async def start_trial(
         if owner_type != "individual":
             raise HTTPException(status_code=400, detail="This plan is for individual accounts.")
         amount = PLANS[plan_key]["amount"]
+        # Individual plans have no seat count. Force this to None rather
+        # than trusting whatever the frontend happened to send in
+        # payload["seats"] (observed sending "" for individual checkouts,
+        # which crashes the webhook's INSERT — seats is an Integer column).
+        seats = None
 
     existing = await db.execute(select(Subscription).where(Subscription.owner_id == owner_id))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="A subscription already exists for this account.")
 
-    reference = f"trial-verify-{uuid.uuid4().hex[:16]}"
+    reference = f"sub-{uuid.uuid4().hex[:16]}"
 
     try:
         result = await paystack_client.initialize_transaction(
             email=agent.email,
-            amount=CARD_VERIFICATION_AMOUNT,
+            amount=amount,
             reference=reference,
             callback_url=f"{FRONTEND_URL}/billing/callback",
             metadata={
-                "kind": "trial_verification",
+                "kind": "subscription_payment",
                 "owner_type": owner_type,
                 "owner_id": owner_id,
                 "plan": plan_key,
@@ -122,15 +136,17 @@ async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_sess
     data = event.get("data", {})
     metadata = data.get("metadata", {})
 
-    if event_type == "charge.success" and metadata.get("kind") == "trial_verification":
-        await _handle_trial_verified(data, metadata, db)
+    logger.info(f"Received Paystack webhook: event={event_type} kind={metadata.get('kind')}")
+
+    if event_type == "charge.success" and metadata.get("kind") == "subscription_payment":
+        await _handle_subscription_started(data, metadata, db)
     elif event_type == "charge.success" and metadata.get("kind") == "renewal":
         await _handle_renewal_success(data, metadata, db)
 
     return {"received": True}
 
 
-async def _handle_trial_verified(data: dict, metadata: dict, db: AsyncSession):
+async def _handle_subscription_started(data: dict, metadata: dict, db: AsyncSession):
     owner_id = metadata["owner_id"]
 
     existing = await db.execute(select(Subscription).where(Subscription.owner_id == owner_id))
@@ -138,19 +154,33 @@ async def _handle_trial_verified(data: dict, metadata: dict, db: AsyncSession):
         return  # already processed — webhooks can be delivered more than once
 
     now = datetime.utcnow()
-    trial_ends_at = now + timedelta(days=TRIAL_DAYS)
+    period_end = now + timedelta(days=metadata["interval_days"])
 
+    # Defensive coercion: seats must be a real int or None. Catches any
+    # stray "" (or other non-numeric junk) from the checkout payload
+    # before it reaches the DB — this INSERT previously crashed with
+    # "invalid input for query argument $5" when seats was "".
+    raw_seats = metadata.get("seats")
+    try:
+        seats_value = int(raw_seats) if raw_seats not in (None, "") else None
+    except (TypeError, ValueError):
+        logger.warning(f"Non-numeric seats value in webhook metadata for owner={owner_id}: {raw_seats!r} — storing as None")
+        seats_value = None
+
+    # NOTE: this charge is the real subscription payment now, not a
+    # refundable card-verification amount — do NOT call
+    # paystack_client.refund_transaction here.
     sub = Subscription(
         id=str(uuid.uuid4()),
         owner_type=metadata["owner_type"],
         owner_id=owner_id,
         plan=metadata["plan"],
-        seats=metadata.get("seats"),
+        seats=seats_value,
         amount=metadata["amount"],
         interval_days=metadata["interval_days"],
-        status="trialing",
-        trial_ends_at=trial_ends_at,
-        current_period_end=trial_ends_at,
+        status="active",
+        trial_ends_at=None,
+        current_period_end=period_end,
         paystack_customer_code=data.get("customer", {}).get("customer_code"),
         paystack_authorization_code=data.get("authorization", {}).get("authorization_code"),
         last_charge_reference=data.get("reference"),
@@ -158,11 +188,11 @@ async def _handle_trial_verified(data: dict, metadata: dict, db: AsyncSession):
     db.add(sub)
     await db.commit()
 
-    try:
-        await paystack_client.refund_transaction(data.get("reference"))
-    except Exception as e:
-        logger.error(f"Trial verification refund failed for owner={owner_id} (non-fatal): {e}")
+    logger.info(f"Subscription activated for owner={owner_id} plan={metadata['plan']} period_end={period_end}")
 
+    # Non-fatal, matches the pattern used elsewhere in this codebase
+    # (e.g. process_message_analysis's meeting-ready email) — a failed
+    # send shouldn't undo a subscription that genuinely went through.
     try:
         if metadata["owner_type"] == "individual":
             agent_result = await db.execute(select(Agent).where(Agent.id == owner_id))
@@ -174,11 +204,11 @@ async def _handle_trial_verified(data: dict, metadata: dict, db: AsyncSession):
         if agent:
             plan_label = PLANS.get(metadata["plan"], {}).get("label", metadata["plan"])
             await asyncio.to_thread(
-                send_trial_started_email, agent.email, agent.name, plan_label,
-                trial_ends_at.strftime("%B %d, %Y")
+                send_subscription_started_email, agent.email, agent.name, plan_label,
+                metadata["amount"], period_end.strftime("%B %d, %Y")
             )
     except Exception as e:
-        logger.error(f"Trial-started email failed (non-fatal) for owner={owner_id}: {e}")
+        logger.error(f"Subscription-started email failed (non-fatal) for owner={owner_id}: {e}")
 
 
 async def _handle_renewal_success(data: dict, metadata: dict, db: AsyncSession):
@@ -209,7 +239,6 @@ async def billing_status(
         "plan": sub.plan,
         "status": sub.status,
         "seats": sub.seats,
-        "trial_ends_at": sub.trial_ends_at,
         "current_period_end": sub.current_period_end,
         "has_access": sub.current_period_end is not None and sub.current_period_end > datetime.utcnow(),
     }

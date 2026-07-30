@@ -7,7 +7,7 @@ const INDIVIDUAL_PLANS = [
   {
     key: 'individual_2week',
     label: '2 Weeks',
-    price: 28000,
+    price: 12000,
     unit: '/ 2 weeks',
     tagline: 'Try a real sales sprint',
     benefits: [
@@ -70,11 +70,18 @@ export default function Pricing({ token, profile }) {
 
   const isTeamAccount = !!profile?.org_id
 
-  const startTrial = async (planKey, seatCount = null) => {
+  // Renamed from startTrial — this is a hard paywall now, no trial
+  // period. seatCount is left as `undefined` (not `null` or `''`) for
+  // individual plans, and only ever set for the team plan — check
+  // api.js's subscribe() to make sure it forwards `undefined`/omits
+  // the field entirely rather than coercing it to '' before it reaches
+  // the backend (that coercion was the root cause of a previous
+  // subscription-creation bug).
+  const subscribe = async (planKey, seatCount) => {
     setLoadingPlan(planKey)
     setError('')
     try {
-      const result = await api.startTrial(token, planKey, seatCount)
+      const result = await api.subscribe(token, planKey, seatCount)
       window.location.href = result.authorization_url
     } catch (err) {
       setError(err.message)
@@ -88,7 +95,7 @@ export default function Pricing({ token, profile }) {
         <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> Dashboard
       </button>
       <h1 style={s.title}>Choose your plan</h1>
-      <p style={s.sub}>7-day free trial on every plan. Your card is saved but not charged until the trial ends.</p>
+      <p style={s.sub}>Full access starts immediately after payment.</p>
 
       {error && <p style={s.error}>{error}</p>}
 
@@ -111,10 +118,10 @@ export default function Pricing({ token, profile }) {
               </ul>
               <button
                 style={{ ...(plan.highlight ? s.btnHighlight : s.btn), ...(loadingPlan !== null ? s.btnDisabled : {}) }}
-                onClick={() => startTrial(plan.key)}
+                onClick={() => subscribe(plan.key)}
                 disabled={loadingPlan !== null}
               >
-                {loadingPlan === plan.key ? 'Starting...' : 'Start free trial'}
+                {loadingPlan === plan.key ? 'Redirecting to payment...' : 'Subscribe now'}
               </button>
             </div>
           ))}
@@ -153,10 +160,10 @@ export default function Pricing({ token, profile }) {
           ) : (
             <button
               style={{ ...s.btnHighlight, ...(loadingPlan !== null ? s.btnDisabled : {}) }}
-              onClick={() => startTrial(TEAM_PLAN.key, seats)}
+              onClick={() => subscribe(TEAM_PLAN.key, seats)}
               disabled={loadingPlan !== null}
             >
-              {loadingPlan === TEAM_PLAN.key ? 'Starting...' : 'Start free trial'}
+              {loadingPlan === TEAM_PLAN.key ? 'Redirecting to payment...' : 'Subscribe now'}
             </button>
           )}
         </div>
