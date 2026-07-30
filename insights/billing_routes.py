@@ -154,7 +154,26 @@ async def _handle_subscription_started(data: dict, metadata: dict, db: AsyncSess
         return  # already processed — webhooks can be delivered more than once
 
     now = datetime.utcnow()
-    period_end = now + timedelta(days=metadata["interval_days"])
+
+    # Defensive coercion: Paystack echoes back transaction metadata with
+    # every value stringified, regardless of what type you originally
+    # sent (confirmed by the "unsupported type for timedelta days
+    # component: str" crash below on interval_days, and the earlier
+    # seats='' crash). Never trust metadata's types on the way back in —
+    # coerce everything numeric explicitly before using it.
+    try:
+        interval_days_value = int(metadata["interval_days"])
+    except (TypeError, ValueError, KeyError) as e:
+        logger.error(f"Invalid interval_days in webhook metadata for owner={owner_id}: {metadata.get('interval_days')!r} ({e})")
+        raise HTTPException(status_code=422, detail="Invalid interval_days in webhook metadata")
+
+    try:
+        amount_value = float(metadata["amount"])
+    except (TypeError, ValueError, KeyError) as e:
+        logger.error(f"Invalid amount in webhook metadata for owner={owner_id}: {metadata.get('amount')!r} ({e})")
+        raise HTTPException(status_code=422, detail="Invalid amount in webhook metadata")
+
+    period_end = now + timedelta(days=interval_days_value)
 
     # Defensive coercion: seats must be a real int or None. Catches any
     # stray "" (or other non-numeric junk) from the checkout payload
@@ -176,8 +195,8 @@ async def _handle_subscription_started(data: dict, metadata: dict, db: AsyncSess
         owner_id=owner_id,
         plan=metadata["plan"],
         seats=seats_value,
-        amount=metadata["amount"],
-        interval_days=metadata["interval_days"],
+        amount=amount_value,
+        interval_days=interval_days_value,
         status="active",
         trial_ends_at=None,
         current_period_end=period_end,
