@@ -81,7 +81,11 @@ export const api = {
   saveOnboarding: (token, fields) => request('PUT', '/agents/onboarding', fields, token),
 
   // -- Billing ---------------------------------------------------------------------
-  startTrial:    (token, plan, seats = null) => request('POST', '/billing/start-trial', { plan, seats }, token),
+  // Renamed from startTrial — hard paywall now, no trial period. Points
+  // at /billing/subscribe (was /billing/start-trial). seats stays
+  // `null` by default for individual plans, which JSON.stringify sends
+  // as `null` (not ''), so the backend receives a real None.
+  subscribe:     (token, plan, seats = null) => request('POST', '/billing/subscribe', { plan, seats }, token),
   billingStatus: (token)                     => request('GET', '/billing/status', null, token),
 
   // -- Organizations ---------------------------------------------------------------

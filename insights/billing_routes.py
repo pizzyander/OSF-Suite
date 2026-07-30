@@ -38,9 +38,9 @@ router = APIRouter(prefix="/billing", tags=["Billing"])
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost")
 
 PLANS = {
-    "individual_2week":  {"label": "2 Weeks",  "amount": 12000,  "interval_days": 14},
-    "individual_1month": {"label": "1 Month",  "amount": 53000,  "interval_days": 30},
-    "individual_1year":  {"label": "1 Year",   "amount": 605000, "interval_days": 365},
+    "individual_2week":  {"label": "2 Weeks",  "amount": 12000,   "interval_days": 14},
+    "individual_1month": {"label": "1 Month",  "amount": 22700,   "interval_days": 30},
+    "individual_1year":  {"label": "1 Year",   "amount": 259000,  "interval_days": 365},
     "team_monthly":       {"label": "Team (monthly)", "amount_per_seat": 139000, "interval_days": 30, "min_seats": 5},
 }
 

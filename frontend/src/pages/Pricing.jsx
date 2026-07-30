@@ -20,7 +20,7 @@ const INDIVIDUAL_PLANS = [
   {
     key: 'individual_1month',
     label: '1 Month',
-    price: 53000,
+    price: 22700,
     unit: '/ month',
     tagline: 'Most flexible',
     benefits: [
@@ -33,7 +33,7 @@ const INDIVIDUAL_PLANS = [
   {
     key: 'individual_1year',
     label: '1 Year',
-    price: 605000,
+    price: 259000,
     unit: '/ year',
     tagline: 'Best value, save 5%',
     highlight: true,
