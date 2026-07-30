@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { BarChart3, Radio, GraduationCap, ArrowRight, ChevronRight, Check } from "lucide-react";
 
 export default function OsfSuiteLandingPage() {
@@ -173,8 +174,8 @@ export default function OsfSuiteLandingPage() {
             <a href="#personas">Who it's for</a>
           </nav>
           <div className="osf-nav-actions">
-            <a href="/login" className="osf-btn osf-btn-ghost">Log in</a>
-            <a href="/signup" className="osf-btn osf-btn-primary">Get started</a>
+            <Link to="/login" className="osf-btn osf-btn-ghost">Log in</Link>
+            <Link to="/signup" className="osf-btn osf-btn-primary">Get started</Link>
           </div>
         </div>
       </header>
@@ -191,9 +192,9 @@ export default function OsfSuiteLandingPage() {
                 and automates coaching for the whole team, grounded in what you actually sell.
               </p>
               <div className="osf-hero-actions">
-                <a href="/signup" className="osf-btn osf-btn-primary">
+                <Link to="/signup" className="osf-btn osf-btn-primary">
                   Get started <ArrowRight size={15} />
-                </a>
+                </Link>
                 <a href="#workflow" className="osf-btn osf-btn-ghost">See how it works</a>
               </div>
               <div className="osf-stats-row">
@@ -403,9 +404,9 @@ export default function OsfSuiteLandingPage() {
               <h2>See it live on your own calls.</h2>
               <p>Get started in minutes, no lengthy setup required.</p>
               <div className="osf-final-actions">
-                <a href="/signup" className="osf-btn osf-btn-primary" style={{ background: "var(--accent)", color: "#231803" }}>
+                <Link to="/signup" className="osf-btn osf-btn-primary" style={{ background: "var(--accent)", color: "#231803" }}>
                   Get started <ChevronRight size={15} />
-                </a>
+                </Link>
               </div>
             </div>
           </div>
@@ -425,14 +426,14 @@ export default function OsfSuiteLandingPage() {
               <ul>
                 <li><a href="#workflow">How it works</a></li>
                 <li><a href="#personas">Who it's for</a></li>
-                <li><a href="/login">Log in</a></li>
-                <li><a href="/signup">Sign up</a></li>
+                <li><Link to="/login">Log in</Link></li>
+                <li><Link to="/signup">Sign up</Link></li>
               </ul>
             </div>
             <div>
               <h4>Company</h4>
               <ul>
-                <li><a href="mailto:akinfeadesanmit@gmail.com">akinfeadesanmit@gmail.com</a></li>
+                <li><a href="mailto:info@hygini.app">info@hygini.app</a></li>
                 <li><a href="tel:+2348120697429">+234 812 069 7429</a></li>
                 <li style={{ color: "var(--text-muted)", fontSize: 13.5 }}>Lagos, Nigeria</li>
               </ul>

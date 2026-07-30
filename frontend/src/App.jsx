@@ -134,9 +134,14 @@ export default function App() {
     )
   }
 
+  // Logged-out visitors land on the marketing page at "/" now instead of
+  // going straight to the login form. Login/Signup/Forgot moved to their
+  // own explicit paths — the landing page's header/hero links already
+  // point at /login and /signup, so no change needed there.
   if (!token) return (
     <Routes>
-      <Route path="/"        element={<Login onLogin={onLogin} />} />
+      <Route path="/"        element={<OsfSuiteLandingPage />} />
+      <Route path="/login"   element={<Login onLogin={onLogin} />} />
       <Route path="/signup"  element={<Signup onLogin={onLogin} />} />
       <Route path="/forgot"  element={<ForgotPassword />} />
       <Route path="*"        element={<Navigate to="/" />} />
