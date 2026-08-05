@@ -1,16 +1,17 @@
 """
 billing_routes.py — checkout, Paystack webhook, and subscription status.
 
-CHANGED from the trial-based version:
-  - No trial period. The initial charge IS the subscription payment,
-    not a small card-verification amount that gets refunded.
-  - Subscription is created with status="active" and a real
-    current_period_end immediately upon successful payment — there is
-    no "trialing" state anymore.
-  - individual_2week price dropped to 12,000 (same unit convention the
-    codebase already used for `amount` — confirm this matches what
-    your Paystack integration expects, e.g. kobo vs. naira, since that
-    wasn't fully documented in the original code).
+CHANGED (multi-currency): plans now support both NGN and USD. The
+customer picks a currency at checkout; PREREQUISITE — USD must be
+explicitly enabled on your Paystack account (contact Paystack support;
+not automatic for Nigerian merchants), and USD payouts require a
+Zenith Bank USD domiciliary account. Code alone does not make USD
+charges work without that account-level enablement.
+
+CHANGED (referrals): on successful first payment, checks whether this
+owner was referred by someone (via db_referrals.Referral) and marks
+that referral "converted" with a computed reward — see db_referrals.py
+for the reward model and why payout itself stays manual for now.
 
 Mount in main.py with:
     from billing_routes import router as billing_router
@@ -28,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import get_session, Agent
 from db_billing import Subscription
+from db_referrals import Referral, REFERRAL_REWARD_PERCENTAGE
 from auth import get_current_agent
 from mailer import send_subscription_started_email
 import paystack_client
@@ -36,12 +38,33 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/billing", tags=["Billing"])
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost")
+SUPPORTED_CURRENCIES = {"NGN", "USD"}
 
+# Prices are in the MAJOR unit of each currency (naira, dollars — not
+# kobo/cents). paystack_client.initialize_transaction is assumed to
+# handle minor-unit conversion internally, consistent with how NGN
+# amounts were already used before USD was added — verify this
+# assumption against your actual paystack_client.py implementation.
 PLANS = {
-    "individual_2week":  {"label": "2 Weeks",  "amount": 12000,   "interval_days": 14},
-    "individual_1month": {"label": "1 Month",  "amount": 22700,   "interval_days": 30},
-    "individual_1year":  {"label": "1 Year",   "amount": 259000,  "interval_days": 365},
-    "team_monthly":       {"label": "Team (monthly)", "amount_per_seat": 139000, "interval_days": 30, "min_seats": 5},
+    "individual_2week": {
+        "label": "2 Weeks", "interval_days": 14,
+        "pricing": {"NGN": 12000, "USD": 16},
+    },
+    "individual_1month": {
+        "label": "1 Month", "interval_days": 30,
+        "pricing": {"NGN": 22700, "USD": 30},
+    },
+    "individual_1year": {
+        "label": "1 Year", "interval_days": 365,
+        "pricing": {"NGN": 259000, "USD": 340},
+    },
+    "team_monthly": {
+        "label": "Team (monthly)", "interval_days": 30, "min_seats": 5,
+        # USD/seat extrapolated from the same implied rate as the
+        # individual plans (~NGN 755 : USD 1) — confirm/adjust this,
+        # it was not explicitly specified.
+        "pricing_per_seat": {"NGN": 139000, "USD": 185},
+    },
 }
 
 
@@ -52,8 +75,15 @@ def _resolve_owner(agent: Agent) -> tuple[str, str]:
     return "individual", agent.id
 
 
+def _plan_amount(plan_key: str, currency: str, seats: int | None = None) -> float:
+    plan = PLANS[plan_key]
+    if plan_key == "team_monthly":
+        return plan["pricing_per_seat"][currency] * seats
+    return plan["pricing"][currency]
+
+
 # ---------------------------------------------------------------------------
-# POST /billing/subscribe — pick a plan, pay in full, access starts immediately
+# POST /billing/subscribe — pick a plan and currency, pay in full, access starts immediately
 # ---------------------------------------------------------------------------
 
 @router.post("/subscribe")
@@ -64,9 +94,12 @@ async def subscribe(
 ):
     plan_key = payload.get("plan", "")
     seats = payload.get("seats")
+    currency = (payload.get("currency") or "NGN").upper()
 
     if plan_key not in PLANS:
         raise HTTPException(status_code=400, detail="Unknown plan.")
+    if currency not in SUPPORTED_CURRENCIES:
+        raise HTTPException(status_code=400, detail=f"Unsupported currency. Choose one of: {', '.join(SUPPORTED_CURRENCIES)}")
 
     owner_type, owner_id = _resolve_owner(agent)
 
@@ -78,16 +111,12 @@ async def subscribe(
         seats = int(seats or PLANS["team_monthly"]["min_seats"])
         if seats < PLANS["team_monthly"]["min_seats"]:
             raise HTTPException(status_code=400, detail=f"Team plans require at least {PLANS['team_monthly']['min_seats']} seats.")
-        amount = PLANS["team_monthly"]["amount_per_seat"] * seats
+        amount = _plan_amount(plan_key, currency, seats)
     else:
         if owner_type != "individual":
             raise HTTPException(status_code=400, detail="This plan is for individual accounts.")
-        amount = PLANS[plan_key]["amount"]
-        # Individual plans have no seat count. Force this to None rather
-        # than trusting whatever the frontend happened to send in
-        # payload["seats"] (observed sending "" for individual checkouts,
-        # which crashes the webhook's INSERT — seats is an Integer column).
         seats = None
+        amount = _plan_amount(plan_key, currency)
 
     existing = await db.execute(select(Subscription).where(Subscription.owner_id == owner_id))
     if existing.scalar_one_or_none():
@@ -99,6 +128,7 @@ async def subscribe(
         result = await paystack_client.initialize_transaction(
             email=agent.email,
             amount=amount,
+            currency=currency,
             reference=reference,
             callback_url=f"{FRONTEND_URL}/billing/callback",
             metadata={
@@ -108,6 +138,7 @@ async def subscribe(
                 "plan": plan_key,
                 "seats": seats,
                 "amount": amount,
+                "currency": currency,
                 "interval_days": PLANS[plan_key]["interval_days"],
             },
         )
@@ -173,6 +204,11 @@ async def _handle_subscription_started(data: dict, metadata: dict, db: AsyncSess
         logger.error(f"Invalid amount in webhook metadata for owner={owner_id}: {metadata.get('amount')!r} ({e})")
         raise HTTPException(status_code=422, detail="Invalid amount in webhook metadata")
 
+    currency_value = str(metadata.get("currency") or "NGN").upper()
+    if currency_value not in SUPPORTED_CURRENCIES:
+        logger.warning(f"Unrecognized currency in webhook metadata for owner={owner_id}: {currency_value!r} — defaulting to NGN")
+        currency_value = "NGN"
+
     period_end = now + timedelta(days=interval_days_value)
 
     # Defensive coercion: seats must be a real int or None. Catches any
@@ -196,6 +232,7 @@ async def _handle_subscription_started(data: dict, metadata: dict, db: AsyncSess
         plan=metadata["plan"],
         seats=seats_value,
         amount=amount_value,
+        currency=currency_value,
         interval_days=interval_days_value,
         status="active",
         trial_ends_at=None,
@@ -205,9 +242,31 @@ async def _handle_subscription_started(data: dict, metadata: dict, db: AsyncSess
         last_charge_reference=data.get("reference"),
     )
     db.add(sub)
+
+    # Referral conversion — only meaningful for individual accounts
+    # (owner_id == agent_id in that case). Team/org referral crediting
+    # is a future extension, not handled here.
+    if metadata["owner_type"] == "individual":
+        try:
+            ref_result = await db.execute(
+                select(Referral).where(Referral.referred_agent_id == owner_id).where(Referral.status == "signed_up")
+            )
+            referral = ref_result.scalar_one_or_none()
+            if referral:
+                referral.status = "converted"
+                referral.converted_at = now
+                referral.reward_amount = round(amount_value * REFERRAL_REWARD_PERCENTAGE, 2)
+                referral.reward_currency = currency_value
+                logger.info(
+                    f"Referral converted: referrer={referral.referrer_agent_id} "
+                    f"referred={owner_id} reward={referral.reward_amount} {currency_value}"
+                )
+        except Exception as e:
+            logger.error(f"Referral conversion check failed (non-fatal) for owner={owner_id}: {e}")
+
     await db.commit()
 
-    logger.info(f"Subscription activated for owner={owner_id} plan={metadata['plan']} period_end={period_end}")
+    logger.info(f"Subscription activated for owner={owner_id} plan={metadata['plan']} currency={currency_value} period_end={period_end}")
 
     # Non-fatal, matches the pattern used elsewhere in this codebase
     # (e.g. process_message_analysis's meeting-ready email) — a failed
@@ -224,7 +283,7 @@ async def _handle_subscription_started(data: dict, metadata: dict, db: AsyncSess
             plan_label = PLANS.get(metadata["plan"], {}).get("label", metadata["plan"])
             await asyncio.to_thread(
                 send_subscription_started_email, agent.email, agent.name, plan_label,
-                metadata["amount"], period_end.strftime("%B %d, %Y")
+                amount_value, currency_value, period_end.strftime("%B %d, %Y")
             )
     except Exception as e:
         logger.error(f"Subscription-started email failed (non-fatal) for owner={owner_id}: {e}")
@@ -258,6 +317,7 @@ async def billing_status(
         "plan": sub.plan,
         "status": sub.status,
         "seats": sub.seats,
+        "currency": sub.currency,
         "current_period_end": sub.current_period_end,
         "has_access": sub.current_period_end is not None and sub.current_period_end > datetime.utcnow(),
     }

@@ -8,6 +8,7 @@ const INDIVIDUAL_PLANS = [
     key: 'individual_2week',
     label: '2 Weeks',
     price: 12000,
+    priceUSD: 16,
     unit: '/ 2 weeks',
     tagline: 'Try a real sales sprint',
     benefits: [
@@ -21,6 +22,7 @@ const INDIVIDUAL_PLANS = [
     key: 'individual_1month',
     label: '1 Month',
     price: 22700,
+    priceUSD: 30,
     unit: '/ month',
     tagline: 'Most flexible',
     benefits: [
@@ -34,6 +36,7 @@ const INDIVIDUAL_PLANS = [
     key: 'individual_1year',
     label: '1 Year',
     price: 259000,
+    priceUSD: 340,
     unit: '/ year',
     tagline: 'Best value, save 5%',
     highlight: true,
@@ -50,6 +53,7 @@ const TEAM_PLAN = {
   key: 'team_monthly',
   label: 'Team',
   pricePerSeat: 139000,
+  pricePerSeatUSD: 185,
   unit: '/ seat / month',
   minSeats: 5,
   tagline: 'For sales teams',
@@ -64,6 +68,7 @@ const TEAM_PLAN = {
 
 export default function Pricing({ token, profile }) {
   const navigate = useNavigate()
+  const [currency, setCurrency] = useState('NGN')
   const [seats, setSeats] = useState(TEAM_PLAN.minSeats)
   const [loadingPlan, setLoadingPlan] = useState(null)
   const [error, setError] = useState('')
@@ -81,7 +86,7 @@ export default function Pricing({ token, profile }) {
     setLoadingPlan(planKey)
     setError('')
     try {
-      const result = await api.subscribe(token, planKey, seatCount)
+      const result = await api.subscribe(token, planKey, seatCount, currency)
       window.location.href = result.authorization_url
     } catch (err) {
       setError(err.message)
@@ -97,6 +102,21 @@ export default function Pricing({ token, profile }) {
       <h1 style={s.title}>Choose your plan</h1>
       <p style={s.sub}>Full access starts immediately after payment.</p>
 
+      <div style={s.currencyToggle}>
+        <button
+          style={{ ...s.currencyBtn, ...(currency === 'NGN' ? s.currencyBtnActive : {}) }}
+          onClick={() => setCurrency('NGN')}
+        >
+          NGN (₦)
+        </button>
+        <button
+          style={{ ...s.currencyBtn, ...(currency === 'USD' ? s.currencyBtnActive : {}) }}
+          onClick={() => setCurrency('USD')}
+        >
+          USD ($)
+        </button>
+      </div>
+
       {error && <p style={s.error}>{error}</p>}
 
       {!isTeamAccount && (
@@ -107,7 +127,8 @@ export default function Pricing({ token, profile }) {
               <p style={s.planLabel}>{plan.label}</p>
               <p style={{ ...s.tagline, ...(plan.highlight ? {} : s.taglineMuted) }}>{plan.tagline}</p>
               <p style={s.price}>
-                ₦{plan.price.toLocaleString()}<span style={s.unit}>{plan.unit}</span>
+                {currency === 'USD' ? `$${plan.priceUSD.toLocaleString()}` : `₦${plan.price.toLocaleString()}`}
+                <span style={s.unit}>{plan.unit}</span>
               </p>
               <ul style={s.benefitList}>
                 {plan.benefits.map((b, i) => (
@@ -133,7 +154,8 @@ export default function Pricing({ token, profile }) {
           <p style={s.planLabel}>{TEAM_PLAN.label}</p>
           <p style={s.tagline}>{TEAM_PLAN.tagline}</p>
           <p style={s.price}>
-            ₦{TEAM_PLAN.pricePerSeat.toLocaleString()}<span style={s.unit}>{TEAM_PLAN.unit}</span>
+            {currency === 'USD' ? `$${TEAM_PLAN.pricePerSeatUSD.toLocaleString()}` : `₦${TEAM_PLAN.pricePerSeat.toLocaleString()}`}
+            <span style={s.unit}>{TEAM_PLAN.unit}</span>
           </p>
           <ul style={s.benefitList}>
             {TEAM_PLAN.benefits.map((b, i) => (
@@ -153,7 +175,11 @@ export default function Pricing({ token, profile }) {
               style={s.seatInput}
             />
           </div>
-          <p style={s.seatTotal}>₦{(TEAM_PLAN.pricePerSeat * seats).toLocaleString()} / month total</p>
+          <p style={s.seatTotal}>
+            {currency === 'USD'
+              ? `$${(TEAM_PLAN.pricePerSeatUSD * seats).toLocaleString()} / month total`
+              : `₦${(TEAM_PLAN.pricePerSeat * seats).toLocaleString()} / month total`}
+          </p>
 
           {profile?.role !== 'admin' ? (
             <p style={s.adminNotice}>Only an org admin can manage billing for your team.</p>
@@ -178,6 +204,9 @@ const s = {
   title:      { color: '#0A1A2F', margin: '0 0 8px', fontSize: '26px', fontWeight: 700, textAlign: 'center', fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
   sub:        { color: '#8A8779', fontSize: '14px', textAlign: 'center', margin: '0 0 2.5rem' },
   error:      { color: '#B3453B', fontSize: '14px', textAlign: 'center', marginBottom: '1.5rem' },
+  currencyToggle: { display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '2rem' },
+  currencyBtn: { padding: '8px 18px', borderRadius: '20px', border: '1px solid #D8D4C9', background: '#FFFFFF', color: '#8A8779', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
+  currencyBtnActive: { background: '#0A1A2F', color: '#fff', border: '1px solid #0A1A2F' },
   grid:       { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' },
   card:       { background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '16px', padding: '1.75rem', display: 'flex', flexDirection: 'column', position: 'relative' },
   cardHighlight: { border: '1.5px solid #B8863B', boxShadow: '0 0 0 1px #B8863B', background: '#FFFFFF' },

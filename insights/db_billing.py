@@ -9,6 +9,11 @@ reusable authorization, and OUR OWN scheduler (worker.py's billing_loop)
 re-charges it every `interval_days`. Paystack is purely the charge
 processor; we own the billing calendar. This is what lets a 14-day plan
 and a 365-day plan share one mechanism instead of needing two.
+
+CHANGED: added `currency` — subscriptions can now be billed in NGN or
+USD. Renewals (worker.py's _process_renewal) must charge in the SAME
+currency the subscription was created in; Paystack authorizations are
+generally currency-specific to how they were created.
 """
 from datetime import datetime
 from sqlalchemy import Column, String, DateTime, Integer, Float
@@ -24,7 +29,8 @@ class Subscription(Base):
 
     plan          = Column(String, nullable=True)
     seats         = Column(Integer, nullable=True)
-    amount        = Column(Float, nullable=True)  # in whatever PAYSTACK_CURRENCY is set to (NGN, not USD)
+    amount        = Column(Float, nullable=True)  # in the major unit of `currency` (naira, dollars — not kobo/cents)
+    currency      = Column(String, nullable=False, default="NGN")  # "NGN" or "USD" — renewals must charge in this same currency
     interval_days = Column(Integer, nullable=True)
 
     status = Column(String, default="trialing")

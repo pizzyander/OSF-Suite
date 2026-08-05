@@ -66,7 +66,7 @@ async function refreshAccessToken() {
 export const api = {
   // -- Auth --------------------------------------------------------------------
   login:          (email, password)         => request('POST', '/agents/login',    { email, password }),
-  register:       (name, email, pass)       => request('POST', '/agents/register', { name, email, password: pass }),
+  register:       (name, email, pass, referral_code = null) => request('POST', '/agents/register', { name, email, password: pass, referral_code }),
   me:             (token)                   => request('GET',  '/agents/me',       null, token),
   changePassword: (token, old_password, new_password) =>
                                                request('PUT',  '/agents/password', { old_password, new_password }, token),
@@ -81,12 +81,14 @@ export const api = {
   saveOnboarding: (token, fields) => request('PUT', '/agents/onboarding', fields, token),
 
   // -- Billing ---------------------------------------------------------------------
-  // Renamed from startTrial — hard paywall now, no trial period. Points
-  // at /billing/subscribe (was /billing/start-trial). seats stays
-  // `null` by default for individual plans, which JSON.stringify sends
-  // as `null` (not ''), so the backend receives a real None.
-  subscribe:     (token, plan, seats = null) => request('POST', '/billing/subscribe', { plan, seats }, token),
+  // currency defaults to 'NGN'; pass 'USD' for dollar-denominated plans.
+  subscribe:     (token, plan, seats = null, currency = 'NGN') =>
+                     request('POST', '/billing/subscribe', { plan, seats, currency }, token),
   billingStatus: (token)                     => request('GET', '/billing/status', null, token),
+
+  // -- Referrals ---------------------------------------------------------------------
+  getReferralLink:  (token) => request('GET', '/referrals/my-code', null, token),
+  getReferralStats: (token) => request('GET', '/referrals/stats', null, token),
 
   // -- Organizations ---------------------------------------------------------------
   createOrganization: (token, name) => request('POST', '/organizations', { name }, token),

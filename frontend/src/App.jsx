@@ -19,6 +19,7 @@ import Pricing from './pages/Pricing'
 import BillingCallback from './pages/BillingCallback'
 import Billing from './pages/Billing'
 import OsfSuiteLandingPage from './pages/OsfSuiteLandingPage'
+import Referrals from './pages/Referrals'
 
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem('osf_token'))
@@ -174,6 +175,7 @@ export default function App() {
       <Route path="/coaching"        element={<Coaching token={token} />} />
       <Route path="/pricing"         element={<Pricing token={token} profile={profile} />} />
       <Route path="/billing"         element={<Billing token={token} profile={profile} />} />
+      <Route path="/referrals"       element={<Referrals token={token} />} />
       <Route path="/onboarding"      element={<Onboarding token={token} onComplete={handleOnboardingComplete} />} />
       <Route path="*"                element={<Navigate to="/" />} />
     </Routes>
