@@ -6,7 +6,7 @@ import { api } from '../api'
 import { validatePassword, passwordStrength } from '../validation'
 
 export default function ResetPassword() {
-  // Was useSearchParams() from react-router-dom — same direct-URL-read
+  // Was useSearchParams() from react-router-dom — same direct-URL-read y
   // pattern used for Signup's ?ref= and JoinOrg's ?token=.
   const token = useMemo(() => new URLSearchParams(window.location.search).get('token'), [])
   const navigate = useNavigate()
