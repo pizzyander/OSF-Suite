@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import { api } from '../api'
 
@@ -29,7 +29,7 @@ export default function Coaching({ token }) {
 
   return (
     <div style={s.wrap}>
-      <button style={s.back} onClick={() => navigate('/')}>
+      <button style={s.back} onClick={() => navigate({ to: '/' })}>
         <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> Dashboard
       </button>
       <h2 style={s.title}>Coaching</h2>

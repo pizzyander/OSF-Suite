@@ -1,5 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import {
   animate,
   motion,
@@ -19,28 +19,6 @@ import {
   GripVertical,
   Sparkles,
 } from "lucide-react";
-
-export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "OSF-Suite — Real-Time AI Sales Call Guidance" },
-      {
-        name: "description",
-        content:
-          "OSF-Suite analyzes sales calls live, surfaces objection cards on the fly, and automates coaching for the whole team.",
-      },
-      { property: "og:title", content: "OSF-Suite — Real-Time AI Sales Call Guidance" },
-      {
-        property: "og:description",
-        content:
-          "Live in-call nudges, post-call analysis, and automated coaching for sales teams.",
-      },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-  }),
-  component: OsfSuiteLandingPage,
-});
 
 /** Adds .is-in when the element scrolls into view. */
 function useReveal() {
@@ -133,7 +111,7 @@ const TICKER = [
   "Rep skill scoring",
 ];
 
-function OsfSuiteLandingPage() {
+export default function OsfSuiteLandingPage() {
   const [persona, setPersona] = useState("manager");
   const [dashboardReady, setDashboardReady] = useState(false);
   const [split, setSplit] = useState(52);
@@ -204,7 +182,6 @@ function OsfSuiteLandingPage() {
         .osf section{padding:92px 0;position:relative;}
         @media (max-width:720px){ .osf section{padding:56px 0;} .osf-wrap{padding:0 18px;} }
 
-        /* ambient aurora + grain */
         .osf-aurora{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0;}
         .osf-blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5;}
         .osf-blob.a{width:520px;height:520px;top:-180px;right:-120px;background:radial-gradient(circle,rgba(199,149,65,.45),transparent 70%);}
@@ -214,11 +191,9 @@ function OsfSuiteLandingPage() {
           background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='.28'/%3E%3C/svg%3E");}
         .osf main, .osf-header, .osf-footer{position:relative;z-index:1;}
 
-        /* scroll progress */
         .osf-progress{position:fixed;top:0;left:0;right:0;height:2px;transform-origin:0 50%;z-index:80;
           background:linear-gradient(90deg,var(--navy-800),var(--accent),var(--teal));}
 
-        /* reveal on scroll */
         .osf-reveal{opacity:0;transform:translateY(22px);filter:blur(6px);transition:opacity .8s var(--ease),transform .8s var(--ease),filter .8s var(--ease);}
         .osf-reveal.is-in{opacity:1;transform:none;filter:none;}
         .osf-reveal[data-d="1"]{transition-delay:.08s;}
@@ -270,7 +245,6 @@ function OsfSuiteLandingPage() {
           box-shadow:0 14px 34px -14px rgba(199,149,65,.75);}
         .osf-btn-gold:hover{transform:translateY(-2px);box-shadow:0 22px 48px -16px rgba(199,149,65,.85);}
 
-        /* header */
         .osf-header{position:sticky;top:0;z-index:50;background:rgba(252,251,249,.72);backdrop-filter:blur(14px) saturate(140%);border-bottom:1px solid var(--line);}
         .osf-nav{display:flex;align-items:center;justify-content:space-between;padding:15px 0;}
         .osf-logo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:19px;color:var(--navy-950);display:inline-flex;align-items:center;gap:8px;}
@@ -286,7 +260,6 @@ function OsfSuiteLandingPage() {
         .osf-nav-actions{display:flex;align-items:center;gap:12px;}
         @media (max-width:760px){ .osf-nav-links{display:none;} .osf-nav-actions .osf-btn-ghost{display:none;} }
 
-        /* hero */
         .osf-hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:56px;align-items:center;padding-top:12px;}
         @media (max-width:960px){ .osf-hero-grid{grid-template-columns:1fr;gap:40px;} }
         .osf-hero h1{font-size:clamp(32px,4.6vw,54px);line-height:1.05;font-weight:600;margin-bottom:20px;}
@@ -301,7 +274,6 @@ function OsfSuiteLandingPage() {
         .osf-stat b{display:block;font-family:'Space Grotesk',sans-serif;font-size:24px;color:var(--navy-950);}
         .osf-stat span{font-size:12.5px;color:var(--text-muted);}
 
-        /* ticker */
         .osf-ticker{border-block:1px solid var(--line);background:rgba(255,255,255,.5);overflow:hidden;padding:14px 0;
           mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);}
         .osf-ticker-track{display:flex;gap:44px;width:max-content;animation:osf-marquee 26s linear infinite;}
@@ -312,7 +284,6 @@ function OsfSuiteLandingPage() {
         .osf-ticker-item svg{color:var(--accent);}
         @media (prefers-reduced-motion:reduce){ .osf-ticker-track{animation:none;} }
 
-        /* hero call panel */
         .osf-call-shell{perspective:1100px;}
         .osf-call-panel{
           background:linear-gradient(160deg,#0C2038,var(--navy-950) 60%);border-radius:20px;padding:22px;color:#fff;
@@ -347,7 +318,6 @@ function OsfSuiteLandingPage() {
           .osf-rec-dot,.osf-tline,.osf-nudge,.osf-skel,.osf-call-panel::before,.osf-logo i{animation:none !important;opacity:1 !important;}
         }
 
-        /* drag compare */
         .osf-compare{
           position:relative;border-radius:18px;overflow:hidden;border:1px solid var(--line);
           background:var(--bg-soft);touch-action:none;user-select:none;cursor:ew-resize;
@@ -399,7 +369,6 @@ function OsfSuiteLandingPage() {
         .osf-ba-card.osf-after{background:linear-gradient(160deg,#0C2038,var(--navy-950));color:#fff;border-color:rgba(255,255,255,.08);}
         .osf-pill{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.04em;padding:2px 8px;border-radius:20px;}
 
-        /* pillars */
         .osf-pillar-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
         @media (max-width:860px){ .osf-pillar-grid{grid-template-columns:1fr;} }
         .osf-pillar{
@@ -436,7 +405,6 @@ function OsfSuiteLandingPage() {
         .osf-bar{flex:1;background:linear-gradient(180deg,var(--navy-600),var(--navy-800));border-radius:4px 4px 0 0;transition:height .8s var(--ease),background .35s var(--ease);}
         .osf-pillar:hover .osf-bar{background:linear-gradient(180deg,#E7BC6B,var(--accent));}
 
-        /* persona toggle */
         .osf-toggle{position:relative;display:inline-flex;border:1px solid var(--line-strong);border-radius:12px;padding:4px;margin-bottom:30px;background:var(--glass);backdrop-filter:blur(8px);}
         .osf-toggle::before{
           content:"";position:absolute;top:4px;bottom:4px;left:4px;width:calc(50% - 4px);
@@ -459,7 +427,6 @@ function OsfSuiteLandingPage() {
         .osf-persona-panel{animation:osf-panel-in .5s var(--ease);}
         @keyframes osf-panel-in{from{opacity:0;transform:translateY(12px) scale(.99);}to{opacity:1;transform:none;}}
 
-        /* proof */
         .osf-proof-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-bottom:36px;}
         @media (max-width:760px){ .osf-proof-strip{grid-template-columns:1fr;} }
         .osf-proof-card{position:relative;border:1px solid var(--line);border-radius:16px;padding:26px;text-align:center;
@@ -474,7 +441,6 @@ function OsfSuiteLandingPage() {
         .osf-proof-card span{position:relative;font-size:13px;color:var(--text-muted);}
         .osf-proof-note{font-size:12px;color:var(--text-muted);text-align:center;margin-top:-20px;margin-bottom:36px;}
 
-        /* final CTA */
         .osf-final-cta{position:relative;overflow:hidden;background:linear-gradient(150deg,#0C2038,var(--navy-950));border-radius:24px;padding:60px 40px;text-align:center;color:#fff;
           box-shadow:0 40px 90px -44px rgba(10,26,47,.9);}
         .osf-final-cta::before{content:"";position:absolute;inset:-40%;background:conic-gradient(from 0deg,transparent,rgba(199,149,65,.22),transparent 40%);animation:osf-spin 14s linear infinite;}
@@ -487,7 +453,6 @@ function OsfSuiteLandingPage() {
         .osf-final-cta p{color:#B9C4D2;font-size:15px;margin:0 0 28px;}
         .osf-final-actions{display:flex;justify-content:center;gap:16px;flex-wrap:wrap;}
 
-        /* footer */
         .osf-footer{border-top:1px solid var(--line);padding:56px 0 28px;background:var(--bg-soft);}
         .osf-footer-grid{display:grid;grid-template-columns:1.6fr 1fr 1fr;gap:36px;padding-bottom:36px;}
         @media (max-width:680px){ .osf-footer-grid{grid-template-columns:1fr 1fr;} }
@@ -536,13 +501,13 @@ function OsfSuiteLandingPage() {
             <a href="#proof">Results</a>
           </nav>
           <div className="osf-nav-actions">
-            <a href="/login" className="osf-btn osf-btn-ghost">
+            <Link to="/login" className="osf-btn osf-btn-ghost">
               Log in
-            </a>
+            </Link>
             <Magnetic strength={8}>
-              <a href="/signup" className="osf-btn osf-btn-primary">
+              <Link to="/signup" className="osf-btn osf-btn-primary">
                 Get started
-              </a>
+              </Link>
             </Magnetic>
           </div>
         </div>
@@ -590,9 +555,9 @@ function OsfSuiteLandingPage() {
                 transition={{ duration: 0.7, delay: 0.62 }}
               >
                 <Magnetic>
-                  <a href="/signup" className="osf-btn osf-btn-primary">
+                  <Link to="/signup" className="osf-btn osf-btn-primary">
                     Get started <ArrowRight size={15} />
-                  </a>
+                  </Link>
                 </Magnetic>
                 <a href="#workflow" className="osf-btn osf-btn-ghost">
                   See how it works
@@ -986,9 +951,9 @@ function OsfSuiteLandingPage() {
               <p>Get started in minutes, no lengthy setup required.</p>
               <div className="osf-final-actions">
                 <Magnetic>
-                  <a href="/signup" className="osf-btn osf-btn-gold">
+                  <Link to="/signup" className="osf-btn osf-btn-gold">
                     Get started <ChevronRight size={15} />
-                  </a>
+                  </Link>
                 </Magnetic>
               </div>
             </div>
@@ -1019,10 +984,10 @@ function OsfSuiteLandingPage() {
                   <a href="#personas">Who it's for</a>
                 </li>
                 <li>
-                  <a href="/login">Log in</a>
+                  <Link to="/login">Log in</Link>
                 </li>
                 <li>
-                  <a href="/signup">Sign up</a>
+                  <Link to="/signup">Sign up</Link>
                 </li>
               </ul>
             </div>
@@ -1042,7 +1007,7 @@ function OsfSuiteLandingPage() {
           <div className="osf-footer-bottom">
             <p>© 2026 OSF-Suite. All rights reserved. Lagos, Nigeria.</p>
             <div className="osf-footer-legal">
-              <a href="/pricing">Pricing</a>
+              <Link to="/pricing">Pricing</Link>
               <a href="/terms">Terms of Use</a>
               <a href="/privacy">Privacy Policy</a>
             </div>

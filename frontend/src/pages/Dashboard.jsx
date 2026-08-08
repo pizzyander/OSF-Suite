@@ -1,14 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from '@tanstack/react-router'
 import { RefreshCw, ArrowRight } from 'lucide-react'
-import { api } from '../../api'
+import { api } from '../api'
 
 export default function Dashboard({ token, profile, onLogout }) {
   const [meetings, setMeetings] = useState([])
-  // Seed from the `profile` prop if App.jsx already fetched it (avoids a
-  // redundant /agents/me call on every dashboard load), falls back to
-  // self-fetching so this component still works fine if ever rendered
-  // standalone without that prop.
   const [agent, setAgent]       = useState(profile || null)
   const [loading, setLoading]   = useState(true)
   const [error, setError]       = useState('')
@@ -66,29 +62,32 @@ export default function Dashboard({ token, profile, onLogout }) {
           )}
         </div>
         <div style={s.actions}>
-          <button style={s.btnPrimary} onClick={() => navigate('/meeting')}>
+          <button style={s.btnPrimary} onClick={() => navigate({ to: '/meeting' })}>
             + New meeting
           </button>
-          <button style={s.btnGhost} onClick={() => navigate('/coaching')}>
+          <button style={s.btnGhost} onClick={() => navigate({ to: '/coaching' })}>
             Coaching
           </button>
-          <button style={s.btnGhost} onClick={() => navigate('/pricing')}>
+          <button style={s.btnGhost} onClick={() => navigate({ to: '/pricing' })}>
             Pricing
           </button>
-          <button style={s.btnGhost} onClick={() => navigate('/billing')}>
+          <button style={s.btnGhost} onClick={() => navigate({ to: '/billing' })}>
             Billing
           </button>
+          <button style={s.btnGhost} onClick={() => navigate({ to: '/referrals' })}>
+            Referrals
+          </button>
           {(agent?.role === 'admin' || agent?.role === 'manager') && (
-            <button style={s.btnGhost} onClick={() => navigate('/manager')}>
+            <button style={s.btnGhost} onClick={() => navigate({ to: '/manager' })}>
               Team performance
             </button>
           )}
           {agent?.role === 'admin' && (
-            <button style={s.btnGhost} onClick={() => navigate('/team')}>
+            <button style={s.btnGhost} onClick={() => navigate({ to: '/team' })}>
               Team
             </button>
           )}
-          <button style={s.btnGhost} onClick={() => navigate('/context')}>
+          <button style={s.btnGhost} onClick={() => navigate({ to: '/context' })}>
             Manage company context
           </button>
           <button style={s.btnGhostIcon} onClick={fetchMeetings} aria-label="Refresh meetings">
@@ -130,7 +129,7 @@ export default function Dashboard({ token, profile, onLogout }) {
           <p style={s.emptySub}>
             Start a new meeting or upload a recording to see insights here.
           </p>
-          <button style={s.btnPrimary} onClick={() => navigate('/meeting')}>
+          <button style={s.btnPrimary} onClick={() => navigate({ to: '/meeting' })}>
             + New meeting
           </button>
         </div>
@@ -152,7 +151,7 @@ export default function Dashboard({ token, profile, onLogout }) {
               <div
                 key={m.meeting_id}
                 style={s.card}
-                onClick={() => navigate(`/meeting/${m.meeting_id}`)}
+                onClick={() => navigate({ to: '/meeting/$id', params: { id: m.meeting_id } })}
               >
                 {/* Date + badge */}
                 <div style={s.cardTop}>

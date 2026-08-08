@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { User, Building2, FileText, ArrowLeft } from 'lucide-react'
+import { useState } from 'react'
+import { useNavigate, Link } from '@tanstack/react-router'
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react'
+import { User, Building2, FileText, ArrowLeft, Check } from 'lucide-react'
 import { api } from '../api'
 
 // Auto-detect the user's likely country/language from the browser so the
@@ -8,7 +9,7 @@ import { api } from '../api'
 // than type from scratch. This is a well-worn premium-SaaS pattern
 // (Notion, Linear, Superhuman all do a version of this).
 function detectLocale() {
-  const locale = navigator.language || 'en-US' // e.g. "en-US", "fr-FR"
+  const locale = navigator.language || 'en-US'
   const languageNames = new Intl.DisplayNames([locale], { type: 'language' })
   const regionNames = new Intl.DisplayNames([locale], { type: 'region' })
   const [lang, region] = locale.split('-')
@@ -26,8 +27,11 @@ const PRIMARY_GOALS = [
   { value: 'coach_team', label: 'Coach my team' },
 ]
 
+const EASE = [0.22, 0.61, 0.36, 1]
+
 export default function Onboarding({ token, onComplete }) {
   const navigate = useNavigate()
+  const reduce = useReducedMotion()
   const [step, setStep] = useState('account_type')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -56,9 +60,6 @@ export default function Onboarding({ token, onComplete }) {
 
   const updateField = (key, value) => setFields(prev => ({ ...prev, [key]: value }))
 
-  // Full ordered list of every screen in the flow, computed dynamically since
-  // it depends on account type (individual vs org) and admin status. Used for
-  // both the progress dots and generic next/back navigation.
   const getFlowSequence = () => {
     const seq = ['account_type']
     if (accountType === 'organization') seq.push('org_name')
@@ -103,8 +104,6 @@ export default function Onboarding({ token, onComplete }) {
     }
   }
 
-  // Fires on the last profile sub-step (primary goal). Everything collected
-  // across the profile screens is sent in a single call, same as before.
   const submitProfile = async () => {
     setSaving(true)
     setError('')
@@ -184,222 +183,383 @@ export default function Onboarding({ token, onComplete }) {
     }
     setTimeout(() => {
       onComplete?.()
-      navigate('/')
+      navigate({ to: '/' })
     }, 1400)
   }
 
   return (
-    <div style={styles.wrap}>
+    <div className="osf-onb">
       <style>{`
-        @keyframes osfFadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes osfShimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
-        @media (prefers-reduced-motion: reduce) {
-          .osf-onb-skel { animation: none !important; }
+        .osf-onb{
+          --navy-950:#08172A; --navy-900:#0A1A2F; --navy-700:#1B3A5C;
+          --bg:#FCFBF9; --line:#E5E2DB; --line-strong:#D8D4C9;
+          --text:#211F1C; --text-body:#46443E; --text-muted:#8A8779;
+          --accent:#C79541; --accent-soft:#F6ECD9; --accent-strong:#8F6423; --teal:#2F9C8E; --danger:#B3453B;
+          --ease:cubic-bezier(.22,.61,.36,1);
+          min-height:100dvh; display:grid; place-items:center; padding:32px 20px;
+          font-family:'Inter','Helvetica Neue',Arial,sans-serif; color:var(--text-body);
+          background:var(--bg); position:relative; overflow:hidden;
+        }
+        .osf-onb *{box-sizing:border-box;}
+        .osf-onb h1{font-family:'Space Grotesk','Inter',sans-serif;color:var(--navy-950);
+          margin:0 0 8px;font-size:clamp(23px,3.2vw,28px);letter-spacing:-.02em;}
+        .osf-onb-aurora{position:absolute;inset:0;pointer-events:none;overflow:hidden;}
+        .osf-onb-blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5;}
+        .osf-onb-blob.a{width:520px;height:520px;top:-200px;right:-120px;
+          background:radial-gradient(circle,rgba(199,149,65,.42),transparent 70%);}
+        .osf-onb-blob.b{width:460px;height:460px;bottom:-220px;left:-140px;
+          background:radial-gradient(circle,rgba(47,156,142,.3),transparent 70%);}
+        .osf-onb-grid{position:absolute;inset:0;pointer-events:none;opacity:.5;
+          background-image:linear-gradient(rgba(10,26,47,.045) 1px,transparent 1px),
+            linear-gradient(90deg,rgba(10,26,47,.045) 1px,transparent 1px);
+          background-size:46px 46px;
+          mask-image:radial-gradient(circle at 50% 40%,#000,transparent 72%);}
+        .osf-onb-stage{position:relative;z-index:1;width:100%;max-width:540px;}
+        .osf-onb-card{
+          position:relative;background:rgba(255,255,255,.85);backdrop-filter:blur(14px);
+          border:1px solid var(--line);border-radius:18px;padding:2.75rem 2.25rem 2.25rem;
+          box-shadow:0 30px 60px -34px rgba(10,26,47,.4),0 1px 2px rgba(10,26,47,.05);
+        }
+
+        .osf-onb-dots{display:flex;gap:6px;justify-content:center;margin-bottom:2.25rem;}
+        .osf-onb-dot{height:6px;border-radius:99px;transition:all .4s var(--ease);}
+
+        .osf-onb-sub{color:var(--text-muted);font-size:14px;line-height:1.6;margin:0 0 1.75rem;}
+
+        .osf-onb-backlink{display:inline-flex;align-items:center;background:none;border:none;
+          color:var(--text-muted);font-size:13px;cursor:pointer;padding:0;margin-bottom:1.25rem;
+          font-family:inherit;transition:color .2s var(--ease);}
+        .osf-onb-backlink:hover{color:var(--navy-900);}
+
+        .osf-onb-choice-row{display:flex;gap:14px;}
+        .osf-onb-choice{flex:1;position:relative;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.9),rgba(245,243,238,.6));
+          border:1px solid var(--line);border-radius:14px;padding:1.75rem 1.25rem;cursor:pointer;
+          display:flex;flex-direction:column;gap:8px;color:inherit;font-family:inherit;text-align:left;
+          transition:transform .35s var(--ease),box-shadow .35s var(--ease),border-color .35s var(--ease);}
+        .osf-onb-choice:hover{transform:translateY(-4px);border-color:rgba(199,149,65,.5);
+          box-shadow:0 24px 44px -28px rgba(10,26,47,.5);}
+        .osf-onb-choice-icon{width:38px;height:38px;border-radius:11px;
+          background:linear-gradient(135deg,var(--accent-soft),#FBF3E3);color:var(--accent-strong);
+          display:flex;align-items:center;justify-content:center;margin-bottom:2px;
+          transition:transform .4s var(--ease);}
+        .osf-onb-choice:hover .osf-onb-choice-icon{transform:translateY(-2px) rotate(-6deg) scale(1.08);}
+        .osf-onb-choice-label{color:var(--navy-950);font-size:15.5px;font-weight:600;}
+        .osf-onb-choice-sub{color:var(--text-muted);font-size:12.5px;}
+
+        .osf-onb-field-row{display:flex;gap:12px;}
+        .osf-onb-field-label{color:var(--navy-700);font-size:12.5px;font-weight:600;margin:0 0 6px;}
+
+        .osf-onb-input, .osf-onb-textarea{width:100%;padding:11px 13px;border-radius:10px;
+          border:1px solid var(--line);background:#fff;color:var(--text);font-size:14px;
+          margin-bottom:10px;font-family:inherit;
+          transition:border-color .25s var(--ease),box-shadow .25s var(--ease),transform .25s var(--ease);}
+        .osf-onb-input::placeholder, .osf-onb-textarea::placeholder{color:#B6B2A6;}
+        .osf-onb-input:hover, .osf-onb-textarea:hover{border-color:var(--line-strong);}
+        .osf-onb-input:focus, .osf-onb-textarea:focus{outline:none;border-color:var(--accent);
+          box-shadow:0 0 0 4px rgba(199,149,65,.16);transform:translateY(-1px);}
+        .osf-onb-textarea{resize:vertical;}
+
+        .osf-onb-chip-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:1.5rem;}
+        .osf-onb-chip{padding:9px 17px;border-radius:99px;border:1px solid var(--line);
+          background:#fff;color:var(--text-muted);font-size:13px;cursor:pointer;font-family:inherit;
+          transition:all .25s var(--ease);}
+        .osf-onb-chip:hover{border-color:rgba(199,149,65,.5);color:var(--navy-900);}
+        .osf-onb-chip.active{background:linear-gradient(135deg,var(--navy-900),var(--navy-700));
+          border-color:var(--navy-900);color:#fff;box-shadow:0 10px 22px -14px rgba(10,26,47,.7);}
+
+        .osf-onb-dropzone{display:flex;flex-direction:column;align-items:center;gap:10px;
+          padding:2.1rem 1.5rem;border:1.5px dashed var(--line-strong);border-radius:14px;
+          cursor:pointer;margin-bottom:1rem;background:rgba(245,243,238,.6);
+          transition:border-color .3s var(--ease),background .3s var(--ease),transform .3s var(--ease);}
+        .osf-onb-dropzone:hover{border-color:var(--accent);background:var(--accent-soft);transform:translateY(-2px);}
+        .osf-onb-dropzone-icon{width:40px;height:40px;border-radius:11px;background:#fff;
+          border:1px solid var(--line);color:var(--navy-700);display:flex;align-items:center;justify-content:center;}
+        .osf-onb-dropzone-text{color:var(--text-muted);font-size:13.5px;text-align:center;}
+
+        .osf-onb-btn{position:relative;overflow:hidden;width:100%;padding:12.5px;border-radius:10px;
+          border:none;background:linear-gradient(135deg,var(--navy-900),var(--navy-700));color:#fff;
+          font-weight:600;cursor:pointer;font-size:14.5px;margin-top:4px;font-family:inherit;
+          box-shadow:0 16px 30px -18px rgba(10,26,47,.8);
+          transition:transform .25s var(--ease),box-shadow .25s var(--ease),opacity .2s var(--ease);}
+        .osf-onb-btn::after{content:"";position:absolute;top:0;left:0;width:45%;height:100%;
+          background:linear-gradient(90deg,transparent,rgba(255,255,255,.25),transparent);
+          transform:translateX(-140%) skewX(-18deg);}
+        .osf-onb-btn:hover:not(:disabled)::after{transition:transform .8s var(--ease);transform:translateX(300%) skewX(-18deg);}
+        .osf-onb-btn:hover:not(:disabled){transform:translateY(-2px);
+          box-shadow:0 22px 40px -18px rgba(10,26,47,.75),0 0 0 4px rgba(199,149,65,.16);}
+        .osf-onb-btn:active:not(:disabled){transform:translateY(0) scale(.99);}
+        .osf-onb-btn:disabled{opacity:.55;cursor:default;}
+
+        .osf-onb-btn-ghost{width:100%;padding:11px;border-radius:8px;background:none;
+          color:var(--text-muted);border:none;cursor:pointer;font-size:13px;margin-top:10px;
+          font-family:inherit;transition:color .2s var(--ease);}
+        .osf-onb-btn-ghost:hover{color:var(--navy-900);}
+        .osf-onb-btn-ghost-small{background:none;border:none;color:var(--accent-strong);cursor:pointer;
+          font-size:13px;padding:0;margin-bottom:1.5rem;font-family:inherit;font-weight:600;}
+
+        .osf-onb-error{display:flex;gap:8px;align-items:flex-start;color:var(--danger);font-size:13px;
+          margin:0 0 12px;background:rgba(179,69,59,.07);border:1px solid rgba(179,69,59,.2);
+          padding:9px 11px;border-radius:9px;}
+
+        .osf-onb-transition{display:flex;flex-direction:column;align-items:center;gap:1.5rem;padding:2.5rem 0;}
+        .osf-onb-skel-group{width:100%;display:flex;flex-direction:column;gap:10px;align-items:center;}
+        .osf-onb-skel{height:11px;border-radius:5px;
+          background:linear-gradient(90deg,var(--accent-soft) 25%,#FBF4E6 37%,var(--accent-soft) 63%);
+          background-size:400% 100%;animation:osfOnbShimmer 1.6s ease-in-out infinite;}
+        @keyframes osfOnbShimmer{0%{background-position:100% 0;}100%{background-position:0 0;}}
+        .osf-onb-transition-text{color:var(--text-muted);font-size:14px;}
+        .osf-onb-transition-check{width:44px;height:44px;border-radius:50%;
+          background:linear-gradient(135deg,var(--teal),#3FB6A6);color:#fff;
+          display:flex;align-items:center;justify-content:center;
+          box-shadow:0 14px 30px -14px rgba(47,156,142,.7);}
+
+        @media (max-width:520px){ .osf-onb-choice-row{flex-direction:column;} .osf-onb-field-row{flex-direction:column;} }
+        @media (prefers-reduced-motion:reduce){
+          .osf-onb-blob{display:none;}
+          .osf-onb-input:focus,.osf-onb-textarea:focus,.osf-onb-btn:hover,.osf-onb-choice:hover{transform:none;}
         }
       `}</style>
-      <div style={styles.card}>
-        <ProgressDots step={step} sequence={getFlowSequence()} />
 
-        {step === 'account_type' && (
-          <div style={styles.stepBox}>
-            <h1 style={styles.title}>Welcome to OSF-Suite</h1>
-            <p style={styles.sub}>Let's set up your workspace.</p>
-            <div style={styles.choiceRow}>
-              <button style={styles.choiceCard} onClick={chooseIndividual}>
-                <span style={styles.choiceIconWrap}><User size={20} /></span>
-                <span style={styles.choiceLabel}>Just me</span>
-                <span style={styles.choiceSub}>Individual account</span>
-              </button>
-              <button style={styles.choiceCard} onClick={chooseOrganization}>
-                <span style={styles.choiceIconWrap}><Building2 size={20} /></span>
-                <span style={styles.choiceLabel}>My team</span>
-                <span style={styles.choiceSub}>Create an organization</span>
-              </button>
-            </div>
-          </div>
-        )}
+      <div className="osf-onb-aurora" aria-hidden="true">
+        <motion.div
+          className="osf-onb-blob a"
+          animate={reduce ? undefined : { x: [0, 28, -12, 0], y: [0, -20, 16, 0] }}
+          transition={{ duration: 24, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div
+          className="osf-onb-blob b"
+          animate={reduce ? undefined : { x: [0, -24, 18, 0], y: [0, 18, -14, 0] }}
+          transition={{ duration: 27, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      </div>
+      <div className="osf-onb-grid" aria-hidden="true" />
 
-        {step === 'org_name' && (
-          <div style={styles.stepBox}>
-            <BackLink onClick={() => setStep('account_type')} />
-            <h1 style={styles.title}>What's your company called?</h1>
-            <p style={styles.sub}>You'll be the admin. You can invite your team in a moment.</p>
-            <input
-              style={styles.input}
-              placeholder="Acme Inc."
-              value={orgName}
-              onChange={e => setOrgName(e.target.value)}
-              autoFocus
-            />
-            {error && <p style={styles.error}>{error}</p>}
-            <button style={{ ...styles.btn, ...(saving || !orgName.trim() ? styles.btnDisabled : {}) }} onClick={submitOrgName} disabled={saving || !orgName.trim()}>
-              {saving ? 'Creating...' : 'Continue'}
-            </button>
-          </div>
-        )}
+      <div className="osf-onb-stage">
+        <motion.div
+          className="osf-onb-card"
+          initial={{ opacity: 0, y: 24, filter: 'blur(8px)' }}
+          animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+          transition={{ duration: 0.6, ease: EASE }}
+        >
+          <ProgressDots step={step} sequence={getFlowSequence()} />
 
-        {step === 'profile_locale' && (
-          <div style={styles.stepBox}>
-            <BackLink onClick={prevProfileStep} />
-            <h1 style={styles.title}>Where are you joining from?</h1>
-            <p style={styles.sub}>We picked these up automatically. Feel free to correct them.</p>
-            <div style={styles.fieldRow}>
-              <Field label="Country" value={fields.country} onChange={v => updateField('country', v)} />
-              <Field label="Language" value={fields.language} onChange={v => updateField('language', v)} />
-            </div>
-            <button style={styles.btn} onClick={nextProfileStep}>Continue</button>
-          </div>
-        )}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={step}
+              initial={{ opacity: 0, x: 14 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -14 }}
+              transition={{ duration: 0.35, ease: EASE }}
+            >
+              {step === 'account_type' && (
+                <div>
+                  <h1>Welcome to OSF-Suite</h1>
+                  <p className="osf-onb-sub">Let's set up your workspace.</p>
+                  <div className="osf-onb-choice-row">
+                    <button className="osf-onb-choice" onClick={chooseIndividual}>
+                      <span className="osf-onb-choice-icon"><User size={20} /></span>
+                      <span className="osf-onb-choice-label">Just me</span>
+                      <span className="osf-onb-choice-sub">Individual account</span>
+                    </button>
+                    <button className="osf-onb-choice" onClick={chooseOrganization}>
+                      <span className="osf-onb-choice-icon"><Building2 size={20} /></span>
+                      <span className="osf-onb-choice-label">My team</span>
+                      <span className="osf-onb-choice-sub">Create an organization</span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
-        {step === 'profile_job_title' && (
-          <div style={styles.stepBox}>
-            <BackLink onClick={prevProfileStep} />
-            <h1 style={styles.title}>What's your job title?</h1>
-            <p style={styles.sub}>This helps us tailor your coaching from day one.</p>
-            <Field placeholder="e.g. Account Executive" value={fields.job_title} onChange={v => updateField('job_title', v)} />
-            <button style={styles.btn} onClick={nextProfileStep}>Continue</button>
-          </div>
-        )}
+              {step === 'org_name' && (
+                <div>
+                  <BackLink onClick={() => setStep('account_type')} />
+                  <h1>What's your company called?</h1>
+                  <p className="osf-onb-sub">You'll be the admin. You can invite your team in a moment.</p>
+                  <input
+                    className="osf-onb-input"
+                    placeholder="Acme Inc."
+                    value={orgName}
+                    onChange={e => setOrgName(e.target.value)}
+                    autoFocus
+                  />
+                  {error && <p className="osf-onb-error">{error}</p>}
+                  <button className="osf-onb-btn" onClick={submitOrgName} disabled={saving || !orgName.trim()}>
+                    {saving ? 'Creating...' : 'Continue'}
+                  </button>
+                </div>
+              )}
 
-        {step === 'profile_role_summary' && (
-          <div style={styles.stepBox}>
-            <BackLink onClick={prevProfileStep} />
-            <h1 style={styles.title}>Briefly, what does your role involve?</h1>
-            <p style={styles.sub}>A sentence or two is plenty.</p>
-            <Field textarea
-              placeholder="e.g. I run discovery and closing calls for mid-market accounts"
-              value={fields.role_summary} onChange={v => updateField('role_summary', v)} />
-            <button style={styles.btn} onClick={nextProfileStep}>Continue</button>
-          </div>
-        )}
+              {step === 'profile_locale' && (
+                <div>
+                  <BackLink onClick={prevProfileStep} />
+                  <h1>Where are you joining from?</h1>
+                  <p className="osf-onb-sub">We picked these up automatically. Feel free to correct them.</p>
+                  <div className="osf-onb-field-row">
+                    <Field label="Country" value={fields.country} onChange={v => updateField('country', v)} />
+                    <Field label="Language" value={fields.language} onChange={v => updateField('language', v)} />
+                  </div>
+                  <button className="osf-onb-btn" onClick={nextProfileStep}>Continue</button>
+                </div>
+              )}
 
-        {step === 'profile_company' && (
-          <div style={styles.stepBox}>
-            <BackLink onClick={prevProfileStep} />
-            <h1 style={styles.title}>What company do you work for?</h1>
-            <Field placeholder="e.g. Acme Inc." value={fields.company_name} onChange={v => updateField('company_name', v)} />
-            <button style={styles.btn} onClick={nextProfileStep}>Continue</button>
-          </div>
-        )}
+              {step === 'profile_job_title' && (
+                <div>
+                  <BackLink onClick={prevProfileStep} />
+                  <h1>What's your job title?</h1>
+                  <p className="osf-onb-sub">This helps us tailor your coaching from day one.</p>
+                  <Field placeholder="e.g. Account Executive" value={fields.job_title} onChange={v => updateField('job_title', v)} />
+                  <button className="osf-onb-btn" onClick={nextProfileStep}>Continue</button>
+                </div>
+              )}
 
-        {step === 'profile_what_we_sell' && (
-          <div style={styles.stepBox}>
-            <BackLink onClick={prevProfileStep} />
-            <h1 style={styles.title}>What do you sell?</h1>
-            <p style={styles.sub}>Product, market, price point. Whatever gives useful context.</p>
-            <Field textarea
-              placeholder="e.g. B2B SaaS for supply chain teams, $99 to $999 per month"
-              value={fields.what_we_sell} onChange={v => updateField('what_we_sell', v)} />
-            <button style={styles.btn} onClick={nextProfileStep}>Continue</button>
-          </div>
-        )}
+              {step === 'profile_role_summary' && (
+                <div>
+                  <BackLink onClick={prevProfileStep} />
+                  <h1>Briefly, what does your role involve?</h1>
+                  <p className="osf-onb-sub">A sentence or two is plenty.</p>
+                  <Field textarea
+                    placeholder="e.g. I run discovery and closing calls for mid-market accounts"
+                    value={fields.role_summary} onChange={v => updateField('role_summary', v)} />
+                  <button className="osf-onb-btn" onClick={nextProfileStep}>Continue</button>
+                </div>
+              )}
 
-        {step === 'profile_methodology' && (
-          <div style={styles.stepBox}>
-            <BackLink onClick={prevProfileStep} />
-            <h1 style={styles.title}>What sales methodology do you use?</h1>
-            <div style={styles.chipRow}>
-              {SALES_METHODOLOGIES.map(m => (
-                <button key={m}
-                  style={{ ...styles.chip, ...(fields.sales_methodology === m ? styles.chipActive : {}) }}
-                  onClick={() => updateField('sales_methodology', m)}>
-                  {m}
-                </button>
-              ))}
-            </div>
-            <button style={styles.btn} onClick={nextProfileStep}>
-              Continue
-            </button>
-          </div>
-        )}
+              {step === 'profile_company' && (
+                <div>
+                  <BackLink onClick={prevProfileStep} />
+                  <h1>What company do you work for?</h1>
+                  <Field placeholder="e.g. Acme Inc." value={fields.company_name} onChange={v => updateField('company_name', v)} />
+                  <button className="osf-onb-btn" onClick={nextProfileStep}>Continue</button>
+                </div>
+              )}
 
-        {step === 'profile_goal' && (
-          <div style={styles.stepBox}>
-            <BackLink onClick={prevProfileStep} />
-            <h1 style={styles.title}>What's your main goal right now?</h1>
-            <div style={styles.chipRow}>
-              {PRIMARY_GOALS.map(g => (
-                <button key={g.value}
-                  style={{ ...styles.chip, ...(fields.primary_goal === g.value ? styles.chipActive : {}) }}
-                  onClick={() => updateField('primary_goal', g.value)}>
-                  {g.label}
-                </button>
-              ))}
-            </div>
-            {error && <p style={styles.error}>{error}</p>}
-            <button style={{ ...styles.btn, ...(saving || !fields.primary_goal ? styles.btnDisabled : {}) }} onClick={submitProfile} disabled={saving || !fields.primary_goal}>
-              {saving ? 'Saving...' : 'Continue'}
-            </button>
-          </div>
-        )}
+              {step === 'profile_what_we_sell' && (
+                <div>
+                  <BackLink onClick={prevProfileStep} />
+                  <h1>What do you sell?</h1>
+                  <p className="osf-onb-sub">Product, market, price point. Whatever gives useful context.</p>
+                  <Field textarea
+                    placeholder="e.g. B2B SaaS for supply chain teams, $99 to $999 per month"
+                    value={fields.what_we_sell} onChange={v => updateField('what_we_sell', v)} />
+                  <button className="osf-onb-btn" onClick={nextProfileStep}>Continue</button>
+                </div>
+              )}
 
-        {step === 'context' && (
-          <div style={styles.stepBox}>
-            <h1 style={styles.title}>Let's make your coach smart from day one</h1>
-            <p style={styles.sub}>
-              Upload a pricing sheet, pitch deck, or product doc. Every meeting you analyze from
-              here on will be checked against it automatically.
-              {isOrgAdmin && ' This will be shared with your whole team.'}
-            </p>
+              {step === 'profile_methodology' && (
+                <div>
+                  <BackLink onClick={prevProfileStep} />
+                  <h1>What sales methodology do you use?</h1>
+                  <div className="osf-onb-chip-row">
+                    {SALES_METHODOLOGIES.map(m => (
+                      <button key={m}
+                        className={`osf-onb-chip${fields.sales_methodology === m ? ' active' : ''}`}
+                        onClick={() => updateField('sales_methodology', m)}>
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                  <button className="osf-onb-btn" onClick={nextProfileStep}>Continue</button>
+                </div>
+              )}
 
-            <label style={styles.dropzone}>
-              <input type="file" accept=".pdf,.docx,.txt" style={{ display: 'none' }}
-                onChange={e => setContextFile(e.target.files[0])} />
-              <span style={styles.dropzoneIconWrap}><FileText size={22} /></span>
-              <span style={styles.dropzoneText}>
-                {contextFile ? contextFile.name : 'Click to upload a file, or paste text below'}
-              </span>
-            </label>
+              {step === 'profile_goal' && (
+                <div>
+                  <BackLink onClick={prevProfileStep} />
+                  <h1>What's your main goal right now?</h1>
+                  <div className="osf-onb-chip-row">
+                    {PRIMARY_GOALS.map(g => (
+                      <button key={g.value}
+                        className={`osf-onb-chip${fields.primary_goal === g.value ? ' active' : ''}`}
+                        onClick={() => updateField('primary_goal', g.value)}>
+                        {g.label}
+                      </button>
+                    ))}
+                  </div>
+                  {error && <p className="osf-onb-error">{error}</p>}
+                  <button className="osf-onb-btn" onClick={submitProfile} disabled={saving || !fields.primary_goal}>
+                    {saving ? 'Saving...' : 'Continue'}
+                  </button>
+                </div>
+              )}
 
-            <textarea
-              style={styles.textarea}
-              placeholder="Or paste your context directly: pricing, positioning, competitors, anything a new rep would need to know."
-              value={contextText}
-              onChange={e => setContextText(e.target.value)}
-              rows={5}
-            />
+              {step === 'context' && (
+                <div>
+                  <h1>Let's make your coach smart from day one</h1>
+                  <p className="osf-onb-sub">
+                    Upload a pricing sheet, pitch deck, or product doc. Every meeting you analyze from
+                    here on will be checked against it automatically.
+                    {isOrgAdmin && ' This will be shared with your whole team.'}
+                  </p>
 
-            {error && <p style={styles.error}>{error}</p>}
-            <button style={{ ...styles.btn, ...(saving || (!contextFile && !contextText.trim()) ? styles.btnDisabled : {}) }} onClick={submitContext} disabled={saving || (!contextFile && !contextText.trim())}>
-              {saving ? 'Uploading...' : 'Continue'}
-            </button>
-            <button style={styles.btnGhost} onClick={skipContext} disabled={saving}>
-              Skip for now
-            </button>
-          </div>
-        )}
+                  <label className="osf-onb-dropzone">
+                    <input type="file" accept=".pdf,.docx,.txt" style={{ display: 'none' }}
+                      onChange={e => setContextFile(e.target.files[0])} />
+                    <span className="osf-onb-dropzone-icon"><FileText size={22} /></span>
+                    <span className="osf-onb-dropzone-text">
+                      {contextFile ? contextFile.name : 'Click to upload a file, or paste text below'}
+                    </span>
+                  </label>
 
-        {step === 'invite_team' && (
-          <div style={styles.stepBox}>
-            <h1 style={styles.title}>Invite your team</h1>
-            <p style={styles.sub}>Optional. You can always do this later from your team settings.</p>
+                  <textarea
+                    className="osf-onb-textarea"
+                    placeholder="Or paste your context directly: pricing, positioning, competitors, anything a new rep would need to know."
+                    value={contextText}
+                    onChange={e => setContextText(e.target.value)}
+                    rows={5}
+                  />
 
-            {inviteEmails.map((email, i) => (
-              <input key={i} style={styles.input} type="email" placeholder="teammate@company.com"
-                value={email} onChange={e => updateInviteEmail(i, e.target.value)} />
-            ))}
-            <button style={styles.btnGhostSmall} onClick={addInviteRow}>+ Add another</button>
+                  {error && <p className="osf-onb-error">{error}</p>}
+                  <button className="osf-onb-btn" onClick={submitContext} disabled={saving || (!contextFile && !contextText.trim())}>
+                    {saving ? 'Uploading...' : 'Continue'}
+                  </button>
+                  <button className="osf-onb-btn-ghost" onClick={skipContext} disabled={saving}>
+                    Skip for now
+                  </button>
+                </div>
+              )}
 
-            {error && <p style={styles.error}>{error}</p>}
-            <button style={{ ...styles.btn, ...(saving ? styles.btnDisabled : {}) }} onClick={submitInvites} disabled={saving}>
-              {saving ? 'Sending invites...' : 'Send invites'}
-            </button>
-            <button style={styles.btnGhost} onClick={skipInvites} disabled={saving}>
-              Skip for now
-            </button>
-          </div>
-        )}
+              {step === 'invite_team' && (
+                <div>
+                  <h1>Invite your team</h1>
+                  <p className="osf-onb-sub">Optional. You can always do this later from your team settings.</p>
 
-        {step === 'transitioning' && (
-          <div style={styles.transitionBox}>
-            <div style={styles.skelGroup}>
-              <div className="osf-onb-skel" style={{ ...styles.skelBar, width: '60%' }} />
-              <div className="osf-onb-skel" style={{ ...styles.skelBar, width: '90%' }} />
-              <div className="osf-onb-skel" style={{ ...styles.skelBar, width: '75%' }} />
-            </div>
-            <p style={styles.transitionText}>Personalizing your experience...</p>
-          </div>
-        )}
+                  {inviteEmails.map((email, i) => (
+                    <input key={i} className="osf-onb-input" type="email" placeholder="teammate@company.com"
+                      value={email} onChange={e => updateInviteEmail(i, e.target.value)} />
+                  ))}
+                  <button className="osf-onb-btn-ghost-small" onClick={addInviteRow}>+ Add another</button>
+
+                  {error && <p className="osf-onb-error">{error}</p>}
+                  <button className="osf-onb-btn" onClick={submitInvites} disabled={saving}>
+                    {saving ? 'Sending invites...' : 'Send invites'}
+                  </button>
+                  <button className="osf-onb-btn-ghost" onClick={skipInvites} disabled={saving}>
+                    Skip for now
+                  </button>
+                </div>
+              )}
+
+              {step === 'transitioning' && (
+                <div className="osf-onb-transition">
+                  <motion.div
+                    className="osf-onb-transition-check"
+                    initial={{ scale: 0, rotate: -30 }}
+                    animate={{ scale: 1, rotate: 0 }}
+                    transition={{ duration: 0.5, ease: EASE }}
+                  >
+                    <Check size={20} strokeWidth={3} />
+                  </motion.div>
+                  <div className="osf-onb-skel-group">
+                    <div className="osf-onb-skel" style={{ width: '60%' }} />
+                    <div className="osf-onb-skel" style={{ width: '90%' }} />
+                    <div className="osf-onb-skel" style={{ width: '75%' }} />
+                  </div>
+                  <p className="osf-onb-transition-text">Personalizing your experience...</p>
+                </div>
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </motion.div>
       </div>
     </div>
   )
@@ -407,13 +567,13 @@ export default function Onboarding({ token, onComplete }) {
 
 function Field({ label, value, onChange, placeholder, textarea }) {
   return (
-    <div style={{ marginBottom: '1.25rem' }}>
-      {label && <p style={styles.fieldLabel}>{label}</p>}
+    <div style={{ marginBottom: '1.25rem', flex: 1 }}>
+      {label && <p className="osf-onb-field-label">{label}</p>}
       {textarea ? (
-        <textarea style={styles.textarea} rows={2} placeholder={placeholder}
+        <textarea className="osf-onb-textarea" rows={2} placeholder={placeholder}
           value={value} onChange={e => onChange(e.target.value)} autoFocus />
       ) : (
-        <input style={styles.input} placeholder={placeholder}
+        <input className="osf-onb-input" placeholder={placeholder}
           value={value} onChange={e => onChange(e.target.value)} autoFocus />
       )}
     </div>
@@ -422,62 +582,29 @@ function Field({ label, value, onChange, placeholder, textarea }) {
 
 function BackLink({ onClick }) {
   return (
-    <button type="button" style={styles.backLink} onClick={onClick}>
+    <button type="button" className="osf-onb-backlink" onClick={onClick}>
       <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> Back
     </button>
   )
 }
 
 function ProgressDots({ step, sequence }) {
-  // "transitioning" isn't a screen the user steps through, so it has no dot.
   const steps = sequence.filter(s => s !== 'transitioning')
   const currentIndex = steps.indexOf(step)
   if (currentIndex === -1) return null
 
   return (
-    <div style={styles.dots}>
+    <div className="osf-onb-dots">
       {steps.map((s, i) => (
-        <div key={s} style={{
-          ...styles.dot,
-          background: i < currentIndex ? '#0A1A2F' : i === currentIndex ? '#B8863B' : '#E5E2DB',
+        <div key={s} className="osf-onb-dot" style={{
+          background: i < currentIndex
+            ? 'var(--navy-900)'
+            : i === currentIndex
+              ? 'linear-gradient(135deg, var(--accent), #E7BC6B)'
+              : 'var(--line)',
           width: i === currentIndex ? '22px' : '7px',
         }} />
       ))}
     </div>
   )
-}
-
-const styles = {
-  wrap:      { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F7F6F3', padding: '1.5rem', fontFamily: "'Inter', 'Helvetica Neue', Arial, sans-serif" },
-  card:      { width: '100%', maxWidth: '520px', background: '#FFFFFF', border: '1px solid #E5E2DB', borderRadius: '14px', padding: '2.75rem 2.25rem', boxShadow: '0 1px 2px rgba(10,26,47,0.04)' },
-  dots:      { display: 'flex', gap: '6px', justifyContent: 'center', marginBottom: '2.25rem' },
-  dot:       { height: '6px', borderRadius: '3px', transition: 'all 0.3s ease' },
-  stepBox:   { animation: 'osfFadeIn 0.35s ease' },
-  backLink:  { display: 'inline-flex', alignItems: 'center', background: 'none', border: 'none', color: '#8A8779', fontSize: '13px', cursor: 'pointer', padding: 0, marginBottom: '1.25rem', fontFamily: 'inherit' },
-  title:     { color: '#0A1A2F', fontSize: '25px', fontWeight: 600, margin: '0 0 8px', letterSpacing: '-0.01em', fontFamily: "'Space Grotesk', 'Inter', sans-serif" },
-  sub:       { color: '#8A8779', fontSize: '14.5px', lineHeight: 1.6, margin: '0 0 2rem' },
-  choiceRow: { display: 'flex', gap: '14px' },
-  choiceCard:{ flex: 1, background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '12px', padding: '1.75rem 1.25rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '8px', color: 'inherit', fontFamily: 'inherit' },
-  choiceIconWrap:{ width: '36px', height: '36px', borderRadius: '9px', background: '#F6ECD9', color: '#8F6423', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '2px' },
-  choiceLabel:{ color: '#0A1A2F', fontSize: '15.5px', fontWeight: 600 },
-  choiceSub: { color: '#8A8779', fontSize: '12.5px' },
-  fieldRow:  { display: 'flex', gap: '12px' },
-  fieldLabel:{ color: '#1B3A5C', fontSize: '12.5px', fontWeight: 600, margin: '0 0 8px' },
-  input:     { width: '100%', padding: '11px 13px', borderRadius: '8px', border: '1px solid #E5E2DB', background: '#FFFFFF', color: '#2B2A26', fontSize: '14px', marginBottom: '10px', boxSizing: 'border-box', fontFamily: 'inherit' },
-  textarea:  { width: '100%', padding: '11px 13px', borderRadius: '8px', border: '1px solid #E5E2DB', background: '#FFFFFF', color: '#2B2A26', fontSize: '14px', marginBottom: '10px', boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' },
-  chipRow:   { display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '1.5rem' },
-  chip:      { padding: '8px 16px', borderRadius: '20px', border: '1px solid #E5E2DB', background: '#FFFFFF', color: '#8A8779', fontSize: '13px', cursor: 'pointer', fontFamily: 'inherit' },
-  chipActive:{ background: '#0A1A2F', borderColor: '#0A1A2F', color: '#fff' },
-  dropzone:  { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', padding: '2.25rem 1.5rem', border: '1.5px dashed #D8D4C9', borderRadius: '12px', cursor: 'pointer', marginBottom: '1rem', background: '#F7F6F3' },
-  dropzoneIconWrap:{ width: '38px', height: '38px', borderRadius: '10px', background: '#FFFFFF', border: '1px solid #E5E2DB', color: '#1B3A5C', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  dropzoneText:{ color: '#8A8779', fontSize: '13.5px', textAlign: 'center' },
-  btn:       { width: '100%', padding: '12.5px', borderRadius: '8px', background: '#0A1A2F', color: '#fff', border: 'none', fontWeight: 600, cursor: 'pointer', fontSize: '14.5px', marginTop: '4px', fontFamily: 'inherit' },
-  btnDisabled:{ opacity: 0.55, cursor: 'default' },
-  btnGhost:  { width: '100%', padding: '11px', borderRadius: '8px', background: 'none', color: '#8A8779', border: 'none', cursor: 'pointer', fontSize: '13px', marginTop: '10px', fontFamily: 'inherit' },
-  btnGhostSmall:{ background: 'none', border: 'none', color: '#8F6423', cursor: 'pointer', fontSize: '13px', padding: 0, marginBottom: '1.5rem', fontFamily: 'inherit', fontWeight: 600 },
-  error:     { color: '#B3453B', fontSize: '13px', margin: '0 0 12px' },
-  transitionBox:{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem', padding: '2.5rem 0' },
-  skelGroup: { width: '100%', display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'center' },
-  skelBar:   { height: '11px', borderRadius: '5px', background: 'linear-gradient(90deg, #EDEAE1 25%, #F7F3E9 37%, #EDEAE1 63%)', backgroundSize: '400% 100%', animation: 'osfShimmer 1.6s ease-in-out infinite' },
-  transitionText:{ color: '#8A8779', fontSize: '14px' },
 }

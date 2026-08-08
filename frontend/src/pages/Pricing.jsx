@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from '@tanstack/react-router'
 import { Check, ArrowLeft } from 'lucide-react'
 import { api } from '../api'
 
@@ -96,7 +96,7 @@ export default function Pricing({ token, profile }) {
 
   return (
     <div style={s.wrap}>
-      <button style={s.back} onClick={() => navigate('/')}>
+      <button style={s.back} onClick={() => navigate({ to: '/' })}>
         <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> Dashboard
       </button>
       <h1 style={s.title}>Choose your plan</h1>
