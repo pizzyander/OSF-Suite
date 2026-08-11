@@ -85,6 +85,8 @@ export default function JoinOrg({ token, onAccepted }) {
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
           transition={{ duration: 0.7, ease: [0.22, 0.61, 0.36, 1] }}>
 
+          <img src="/logo-mark.png" alt="OSF-Suite" className="osf-join-logo-img" />
+
           {status === 'loading' && (
             <div className="osf-join-skel-group">
               <div className="osf-join-skel" style={{ width: '60%', height: '13px', margin: '0 auto 10px' }} />
@@ -169,6 +171,7 @@ const JOIN_STYLES = `
     border:1px solid var(--line);border-radius:18px;padding:2.75rem;text-align:center;
     box-shadow:0 30px 60px -34px rgba(10,26,47,.45),0 1px 2px rgba(10,26,47,.05);}
 
+  .osf-join-logo-img{height:28px;width:auto;display:block;margin:0 auto 1.5rem;}
   .osf-join-icon-wrap{width:46px;height:46px;border-radius:13px;
     background:linear-gradient(135deg,var(--accent-soft),#FBF3E3);color:var(--accent-strong);
     display:flex;align-items:center;justify-content:center;margin:0 auto 1.25rem;}

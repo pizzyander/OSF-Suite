@@ -247,11 +247,7 @@ export default function OsfSuiteLandingPage() {
 
         .osf-header{position:sticky;top:0;z-index:50;background:rgba(252,251,249,.72);backdrop-filter:blur(14px) saturate(140%);border-bottom:1px solid var(--line);}
         .osf-nav{display:flex;align-items:center;justify-content:space-between;padding:15px 0;}
-        .osf-logo{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:19px;color:var(--navy-950);display:inline-flex;align-items:center;gap:8px;}
-        .osf-logo span{color:var(--accent-strong);}
-        .osf-logo i{width:9px;height:9px;border-radius:3px;background:linear-gradient(135deg,var(--accent),var(--teal));display:inline-block;
-          animation:osf-tick 4s var(--ease) infinite;}
-        @keyframes osf-tick{0%,100%{transform:rotate(0) scale(1);}50%{transform:rotate(45deg) scale(.82);}}
+        .osf-logo-img{height:30px;width:auto;display:block;}
         .osf-nav-links{display:flex;gap:28px;align-items:center;}
         .osf-nav-links a{position:relative;font-size:14px;font-weight:500;color:var(--text-body);text-decoration:none;transition:color .2s var(--ease);}
         .osf-nav-links a::after{content:"";position:absolute;left:0;bottom:-5px;height:1.5px;width:100%;background:linear-gradient(90deg,var(--accent),var(--teal));transform:scaleX(0);transform-origin:right;transition:transform .35s var(--ease);}
@@ -315,7 +311,7 @@ export default function OsfSuiteLandingPage() {
         .osf-nudge b{font-family:'IBM Plex Mono',monospace;font-size:10.5px;text-transform:uppercase;flex-shrink:0;}
 
         @media (prefers-reduced-motion:reduce){
-          .osf-rec-dot,.osf-tline,.osf-nudge,.osf-skel,.osf-call-panel::before,.osf-logo i{animation:none !important;opacity:1 !important;}
+          .osf-rec-dot,.osf-tline,.osf-nudge,.osf-skel,.osf-call-panel::before{animation:none !important;opacity:1 !important;}
         }
 
         .osf-compare{
@@ -491,10 +487,7 @@ export default function OsfSuiteLandingPage() {
 
       <header className="osf-header">
         <div className="osf-wrap osf-nav">
-          <div className="osf-logo">
-            <i />
-            OSF<span>-Suite</span>
-          </div>
+          <img src="/logo-mark.png" alt="OSF-Suite" className="osf-logo-img" />
           <nav className="osf-nav-links">
             <a href="#workflow">Product</a>
             <a href="#personas">Who it's for</a>
@@ -646,7 +639,7 @@ export default function OsfSuiteLandingPage() {
         </div>
 
         {/* WORKFLOW */}
-        <section id="workflow">
+        <section id="workflow" style={{ background: "var(--bg-soft)" }}>
           <div className="osf-wrap">
             <div className="osf-reveal" style={{ maxWidth: 640, marginBottom: 36 }}>
               <div className="osf-eyebrow">Before OSF-Suite, after OSF-Suite</div>
@@ -965,10 +958,7 @@ export default function OsfSuiteLandingPage() {
         <div className="osf-wrap">
           <div className="osf-footer-grid">
             <div>
-              <div className="osf-logo" style={{ marginBottom: 10 }}>
-                <i />
-                OSF<span>-Suite</span>
-              </div>
+              <img src="/logo-mark.png" alt="OSF-Suite" className="osf-logo-img" style={{ marginBottom: 12 }} />
               <p>
                 AI-powered sales coaching and revenue intelligence, live during the call and
                 automatic after it.

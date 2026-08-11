@@ -87,11 +87,7 @@ export default function Login({ onLogin }) {
           -webkit-mask:linear-gradient(#000,#000) content-box,linear-gradient(#000,#000);
           -webkit-mask-composite:xor;mask-composite:exclude;padding:1px;}
         .osf-card:hover::before{opacity:1;}
-        .osf-logo{font-family:'Space Grotesk','Inter',sans-serif;font-weight:700;font-size:19px;
-          color:var(--navy-950);letter-spacing:-.02em;display:inline-flex;align-items:center;gap:8px;margin-bottom:18px;}
-        .osf-logo i{width:7px;height:7px;border-radius:50%;background:var(--accent);
-          box-shadow:0 0 0 0 rgba(199,149,65,.5);animation:osf-ping 2.4s var(--ease) infinite;}
-        @keyframes osf-ping{0%{box-shadow:0 0 0 0 rgba(199,149,65,.5);}70%{box-shadow:0 0 0 9px rgba(199,149,65,0);}100%{box-shadow:0 0 0 0 rgba(199,149,65,0);}}
+        .osf-logo-img{height:32px;width:auto;display:block;margin-bottom:18px;}
         .osf-sub{color:var(--text-muted);font-size:14px;line-height:1.55;margin:0 0 24px;}
         .osf-form{display:flex;flex-direction:column;gap:14px;}
         .osf-field{display:flex;flex-direction:column;gap:6px;}
@@ -134,7 +130,6 @@ export default function Login({ onLogin }) {
           color:var(--text-muted);font-size:11.5px;}
         @media (prefers-reduced-motion:reduce){
           .osf-auth-blob{display:none;}
-          .osf-logo i{animation:none;}
           .osf-input:focus,.osf-submit:hover{transform:none;}
         }
       `}</style>
@@ -164,10 +159,7 @@ export default function Login({ onLogin }) {
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
           transition={{ duration: 0.7, ease: [0.22, 0.61, 0.36, 1] }}
         >
-          <div className="osf-logo">
-            <i />
-            <span>OSF<span style={{ color: 'var(--accent-strong)' }}>-Suite</span></span>
-          </div>
+          <img src="/logo-mark.png" alt="OSF-Suite" className="osf-logo-img" />
 
           <h1>Welcome back</h1>
           <p className="osf-sub">Sign in to your sales coaching workspace.</p>

@@ -1,10 +1,39 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { motion, useReducedMotion } from 'motion/react'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Copy, Check } from 'lucide-react'
 import { api } from '../api'
 
 const EASE = [0.22, 0.61, 0.36, 1]
+
+// Small reusable copy-to-clipboard control, dropped into any field/section
+// header. Built for the "paste this into my CRM" workflow — copies plain
+// text, no markup, so it drops cleanly into a CRM notes field.
+function CopyButton({ text, label }) {
+  const [copied, setCopied] = useState(false)
+  if (!text) return null
+  const handleCopy = async (e) => {
+    e.stopPropagation()
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch (err) {
+      console.error('Copy failed:', err)
+    }
+  }
+  return (
+    <button
+      type="button"
+      className="osf-detail-copy-btn"
+      onClick={handleCopy}
+      aria-label={`Copy ${label || 'text'}`}
+      title={copied ? 'Copied!' : `Copy ${label || ''}`}
+    >
+      {copied ? <Check size={13} /> : <Copy size={13} />}
+    </button>
+  )
+}
 
 // CHANGED: id now comes in as a prop from the route file
 // (routes/meeting.$id.jsx already extracts it via Route.useParams()),
@@ -94,7 +123,10 @@ export default function MeetingDetail({ token, id }) {
 
         {mi?.summary && (
           <motion.div className="osf-detail-summary-box" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.05, ease: EASE }}>
-            <p className="osf-detail-summary-text">{mi.summary}</p>
+            <div className="osf-detail-summary-top">
+              <p className="osf-detail-summary-text" style={{ margin: 0 }}>{mi.summary}</p>
+              <CopyButton text={mi.summary} label="summary" />
+            </div>
           </motion.div>
         )}
 
@@ -120,14 +152,18 @@ export default function MeetingDetail({ token, id }) {
         <div className="osf-detail-cols">
           <div className="osf-detail-col">
             {mi?.deal_health && (
-              <Section title="Deal health">
+              <Section title="Deal health" copyText={mi.deal_health.reasoning}>
                 <p className="osf-detail-body-text">{mi.deal_health.reasoning}</p>
                 <List items={mi.deal_health.next_steps} label="Next steps" />
               </Section>
             )}
-            <Section title="Buying signals"><List items={mi?.buying_signals} /></Section>
-            <Section title="Client pain points"><List items={mi?.client_pain_points} /></Section>
-            <Section title="Action items">
+            <Section title="Buying signals" copyText={mi?.buying_signals?.join('\n')}>
+              <List items={mi?.buying_signals} />
+            </Section>
+            <Section title="Client pain points" copyText={mi?.client_pain_points?.join('\n')}>
+              <List items={mi?.client_pain_points} />
+            </Section>
+            <Section title="Action items" copyText={mi?.action_items?.map(a => `[${a.owner}] ${a.task}${a.deadline ? ' — ' + a.deadline : ''}`).join('\n')}>
               {mi?.action_items?.map((a, i) => (
                 <div key={i} className="osf-detail-action-item">
                   <span className="osf-detail-owner-badge">{a.owner}</span>
@@ -137,7 +173,10 @@ export default function MeetingDetail({ token, id }) {
               ))}
             </Section>
             {mi?.client_personality && (
-              <Section title="Client personality">
+              <Section
+                title="Client personality"
+                copyText={`Communication style: ${mi.client_personality.communication_style}\nDecision making: ${mi.client_personality.decision_making}${mi.client_personality.key_motivators?.length ? '\nKey motivators: ' + mi.client_personality.key_motivators.join(', ') : ''}`}
+              >
                 <p className="osf-detail-meta-label">Communication style</p>
                 <p className="osf-detail-body-text">{mi.client_personality.communication_style}</p>
                 <p className="osf-detail-meta-label">Decision making</p>
@@ -151,8 +190,14 @@ export default function MeetingDetail({ token, id }) {
             <Section title="Objections handled">
               {co?.objections_handled?.map((o, i) => (
                 <div key={i} className="osf-detail-obj-card">
-                  <p className="osf-detail-obj-q">"{o.client_objection}"</p>
-                  <div style={{ marginBottom: '8px' }}>
+                  <div className="osf-detail-summary-top">
+                    <p className="osf-detail-obj-q" style={{ margin: 0 }}>"{o.client_objection}"</p>
+                    <CopyButton
+                      text={`Objection: "${o.client_objection}"\nEffectiveness: ${o.effectiveness_score_out_of_10}/10\nCritique: ${o.coaching_critique}\nBetter response: "${o.exact_alternative_script}"`}
+                      label="objection"
+                    />
+                  </div>
+                  <div style={{ margin: '8px 0' }}>
                     <span className="osf-detail-score-pill" style={scorePillColor(o.effectiveness_score_out_of_10)}>
                       {o.effectiveness_score_out_of_10}/10
                     </span>
@@ -167,7 +212,10 @@ export default function MeetingDetail({ token, id }) {
             </Section>
 
             {co?.missed_revenue_cues?.length > 0 && (
-              <Section title="Missed revenue cues">
+              <Section
+                title="Missed revenue cues"
+                copyText={co.missed_revenue_cues.map(c => `${c.timestamp_or_context}\nSignal: ${c.client_buying_signal}\nMissed: ${c.agent_missed_action}`).join('\n\n')}
+              >
                 {co.missed_revenue_cues.map((c, i) => (
                   <div key={i} className="osf-detail-cue-card">
                     <p className="osf-detail-cue-context">{c.timestamp_or_context}</p>
@@ -178,7 +226,7 @@ export default function MeetingDetail({ token, id }) {
               </Section>
             )}
 
-            <Section title="Top 3 coaching actions">
+            <Section title="Top 3 coaching actions" copyText={co?.top_three_action_items?.join('\n')}>
               {co?.top_three_action_items?.map((item, i) => (
                 <div key={i} className="osf-detail-top-action">
                   <span className="osf-detail-top-num">{i + 1}</span>
@@ -187,7 +235,9 @@ export default function MeetingDetail({ token, id }) {
               ))}
             </Section>
 
-            <Section title="Intelligence insights"><List items={mi?.intelligence_insights} /></Section>
+            <Section title="Intelligence insights" copyText={mi?.intelligence_insights?.join('\n')}>
+              <List items={mi?.intelligence_insights} />
+            </Section>
           </div>
         </div>
 
@@ -201,11 +251,14 @@ export default function MeetingDetail({ token, id }) {
   )
 }
 
-function Section({ title, children }) {
+function Section({ title, children, copyText }) {
   if (!children || (Array.isArray(children) && children.every(c => !c))) return null
   return (
     <div className="osf-detail-section">
-      <h4 className="osf-detail-section-title">{title}</h4>
+      <div className="osf-detail-section-title">
+        <h4>{title}</h4>
+        <CopyButton text={copyText} label={title?.toLowerCase()} />
+      </div>
       {children}
     </div>
   )
@@ -283,9 +336,15 @@ const DETAIL_STYLES = `
   .osf-detail-cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:2rem;}
   @media (max-width:760px){ .osf-detail-cols{grid-template-columns:1fr;} }
   .osf-detail-section{margin-bottom:1.5rem;}
-  .osf-detail-section-title{color:var(--text-muted);font-size:11px;font-weight:700;text-transform:uppercase;
-    letter-spacing:.08em;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line);
-    font-family:'IBM Plex Mono',monospace;}
+  .osf-detail-section-title{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line);}
+  .osf-detail-section-title h4{color:var(--text-muted);font-size:11px;font-weight:700;text-transform:uppercase;
+    letter-spacing:.08em;margin:0;font-family:'IBM Plex Mono',monospace;}
+  .osf-detail-copy-btn{display:flex;align-items:center;justify-content:center;width:24px;height:24px;
+    border-radius:6px;border:1px solid var(--line);background:rgba(255,255,255,.7);color:var(--text-muted);
+    cursor:pointer;flex-shrink:0;transition:all .2s var(--ease);}
+  .osf-detail-copy-btn:hover{border-color:rgba(199,149,65,.5);color:var(--accent-strong);background:var(--accent-soft);}
+  .osf-detail-summary-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
   .osf-detail-body-text{color:var(--text-body);font-size:14px;margin:0 0 10px;line-height:1.6;}
   .osf-detail-meta-label{color:var(--text-muted);font-size:11px;font-weight:600;text-transform:uppercase;
     letter-spacing:.08em;margin:0 0 6px;}

@@ -58,10 +58,7 @@ export default function ResetPassword() {
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
           transition={{ duration: 0.7, ease: [0.22, 0.61, 0.36, 1] }}>
 
-          <div className="osf-logo">
-            <i />
-            <span>OSF<span style={{ color: 'var(--accent-strong)' }}>-Suite</span></span>
-          </div>
+          <img src="/logo-mark.png" alt="OSF-Suite" className="osf-logo-img" />
 
           {!token && (
             <>
@@ -172,12 +169,7 @@ const RESET_STYLES = `
   .osf-card{position:relative;background:rgba(255,255,255,.82);backdrop-filter:blur(14px);
     border:1px solid var(--line);border-radius:18px;padding:34px 30px 28px;text-align:center;
     box-shadow:0 30px 60px -34px rgba(10,26,47,.45),0 1px 2px rgba(10,26,47,.05);}
-  .osf-logo{font-family:'Space Grotesk','Inter',sans-serif;font-weight:700;font-size:19px;
-    color:var(--navy-950);letter-spacing:-.02em;display:inline-flex;align-items:center;gap:8px;margin-bottom:18px;
-    justify-content:center;}
-  .osf-logo i{width:7px;height:7px;border-radius:50%;background:var(--accent);
-    box-shadow:0 0 0 0 rgba(199,149,65,.5);animation:osf-ping 2.4s var(--ease) infinite;}
-  @keyframes osf-ping{0%{box-shadow:0 0 0 0 rgba(199,149,65,.5);}70%{box-shadow:0 0 0 9px rgba(199,149,65,0);}100%{box-shadow:0 0 0 0 rgba(199,149,65,0);}}
+  .osf-logo-img{height:32px;width:auto;display:block;margin:0 auto 18px;}
   .osf-checkmark{width:50px;height:50px;border-radius:50%;
     background:linear-gradient(135deg,var(--teal),#3FB6A6);color:#fff;
     display:flex;align-items:center;justify-content:center;margin:0 auto 1.25rem;
@@ -212,7 +204,7 @@ const RESET_STYLES = `
   .osf-spin{animation:osf-rot 1s linear infinite;}
   @keyframes osf-rot{to{transform:rotate(360deg);}}
   @media (prefers-reduced-motion:reduce){
-    .osf-auth-blob{display:none;} .osf-logo i{animation:none;}
+    .osf-auth-blob{display:none;}
     .osf-input:focus,.osf-submit:hover{transform:none;}
   }
 `
