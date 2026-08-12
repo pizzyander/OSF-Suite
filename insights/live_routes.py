@@ -2,7 +2,7 @@ import os
 import json
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import boto3
 import websockets
@@ -67,6 +67,15 @@ async def authenticate_ws(token: str, meeting_id: str) -> Agent | None:
     meeting. Returns the full Agent row on success (not just the id) —
     the nudge system needs agent.org_id to resolve shared team context,
     which a bare id string can't give us.
+
+    CHANGED: billing check is now trial-aware, mirroring
+    billing_guard.py's require_active_access — an owner with no active
+    Subscription can still connect if they're within their 7-day trial
+    window. This endpoint is a WebSocket route, so it can't use
+    FastAPI's Depends() the way HTTP routes do, hence duplicating the
+    same logic here manually (same reasoning as the original billing
+    check that lived in this function before trials existed). Keep
+    this in sync with billing_guard.py if that logic ever changes.
     """
     try:
         agent_id = decode_token(token)
@@ -93,20 +102,41 @@ async def authenticate_ws(token: str, meeting_id: str) -> Agent | None:
         if not agent:
             return None
 
-        # Billing gate — WebSocket routes can't use FastAPI's Depends()
-        # pattern the way HTTP routes do (see billing_guard.py for that
-        # version), so this is checked manually here instead. A live call
-        # is exactly the kind of usage that should stop the instant a
-        # trial/subscription expires — checked BEFORE accept() would be
-        # nice, but agent isn't known that early; the caller closes the
-        # connection immediately after this returns None either way.
+        # Billing/trial gate — WebSocket routes can't use FastAPI's
+        # Depends() pattern the way HTTP routes do (see billing_guard.py
+        # for that version), so this is checked manually here instead.
+        # A live call is exactly the kind of usage that should stop the
+        # instant a trial/subscription expires — checked BEFORE accept()
+        # would be nice, but agent isn't known that early; the caller
+        # closes the connection immediately after this returns None
+        # either way.
         from db_billing import Subscription
+        from db_trial import TrialUsage, TRIAL_DAYS
+
         owner_id = agent.org_id or agent.id
         sub_result = await db.execute(select(Subscription).where(Subscription.owner_id == owner_id))
         sub = sub_result.scalar_one_or_none()
-        if not sub or not sub.current_period_end or sub.current_period_end <= datetime.utcnow():
-            logger.warning(f"Live auth blocked for meeting={meeting_id}: no active subscription for owner={owner_id}")
-            return None
+
+        if sub:
+            if not sub.current_period_end or sub.current_period_end <= datetime.utcnow():
+                logger.warning(f"Live auth blocked for meeting={meeting_id}: subscription expired for owner={owner_id}")
+                return None
+            # Active subscription — trial irrelevant, allow.
+        else:
+            trial_result = await db.execute(select(TrialUsage).where(TrialUsage.owner_id == owner_id))
+            trial = trial_result.scalar_one_or_none()
+
+            if not trial:
+                logger.warning(f"Live auth blocked for meeting={meeting_id}: no subscription or trial for owner={owner_id}")
+                return None
+
+            trial_expires_at = trial.trial_started_at + timedelta(days=TRIAL_DAYS)
+            if datetime.utcnow() > trial_expires_at:
+                logger.warning(f"Live auth blocked for meeting={meeting_id}: trial expired for owner={owner_id}")
+                return None
+            # Within trial window — meeting-count cap was already
+            # enforced when this meeting was created via /meetings/start,
+            # not re-checked here.
 
         return agent
 

@@ -17,6 +17,7 @@ export default function Dashboard({ token, profile, onLogout }) {
   const [error, setError]       = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [showWelcome, setShowWelcome] = useState(false)
+  const [trialStatus, setTrialStatus] = useState(null)
   const navigate = useNavigate()
   const reduce = useReducedMotion()
   const closeTimer = useRef(null)
@@ -39,20 +40,21 @@ export default function Dashboard({ token, profile, onLogout }) {
       api.me(token).then(setAgent).catch(() => onLogout())
     }
     fetchMeetings()
+    api.getTrialStatus(token)
+      .then(setTrialStatus)
+      .catch(err => console.error('Failed to load trial status (non-fatal):', err))
   }, [])
 
   // Fresh-user welcome: shows once per browser (localStorage flag) for an
-  // account with zero completed meetings. NOTE: the "5 meetings in 7
-  // days" trial framing below is marketing copy only — the backend is on
-  // a hard-paywall model (see billing_routes.py) with no trial period or
-  // meeting cap actually enforced anywhere. If real enforcement is
-  // wanted, that's a separate backend change (meeting-count tracking +
-  // a gate in /meetings/start), not just this popup.
+  // account with zero completed meetings. Trial numbers shown (meetings
+  // left, days left) come from GET /billing/trial-status — real,
+  // enforced values, not hardcoded copy (see billing_guard.py,
+  // db_trial.py, and main.py's /meetings/start for the enforcement side).
   useEffect(() => {
-    if (!loading && meetings.length === 0 && !localStorage.getItem(WELCOME_SEEN_KEY)) {
+    if (!loading && trialStatus && meetings.length === 0 && !localStorage.getItem(WELCOME_SEEN_KEY)) {
       setShowWelcome(true)
     }
-  }, [loading, meetings])
+  }, [loading, meetings, trialStatus])
 
   const dismissWelcome = () => {
     localStorage.setItem(WELCOME_SEEN_KEY, '1')
@@ -309,10 +311,22 @@ export default function Dashboard({ token, profile, onLogout }) {
                   cards, and a full report the moment it ends.
                 </p>
 
-                <div className="osf-dash-welcome-trial">
-                  <span className="osf-dash-welcome-trial-badge">7-day trial</span>
-                  <span className="osf-dash-welcome-trial-text">Up to 5 meetings, free, no card required</span>
-                </div>
+                {trialStatus?.has_subscription ? (
+                  <div className="osf-dash-welcome-trial">
+                    <span className="osf-dash-welcome-trial-badge">Active plan</span>
+                    <span className="osf-dash-welcome-trial-text">You're all set — no limits</span>
+                  </div>
+                ) : (
+                  <div className="osf-dash-welcome-trial">
+                    <span className="osf-dash-welcome-trial-badge">
+                      {(trialStatus?.days_left ?? trialStatus?.days_total ?? 7)}-day trial
+                    </span>
+                    <span className="osf-dash-welcome-trial-text">
+                      {(trialStatus?.meetings_remaining ?? trialStatus?.meetings_cap ?? 5)} meeting
+                      {(trialStatus?.meetings_remaining ?? trialStatus?.meetings_cap ?? 5) !== 1 ? 's' : ''} left, free, no card required
+                    </span>
+                  </div>
+                )}
 
                 <button className="osf-dash-welcome-cta" onClick={startFirstMeeting}>
                   <Video size={16} />

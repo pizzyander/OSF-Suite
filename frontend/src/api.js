@@ -85,6 +85,7 @@ export const api = {
   subscribe:     (token, plan, seats = null, currency = 'NGN') =>
                      request('POST', '/billing/subscribe', { plan, seats, currency }, token),
   billingStatus: (token)                     => request('GET', '/billing/status', null, token),
+  getTrialStatus: (token)                    => request('GET', '/billing/trial-status', null, token),
 
   // -- Referrals ---------------------------------------------------------------------
   getReferralLink:  (token) => request('GET', '/referrals/my-code', null, token),

@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import get_session, Agent
 from db_billing import Subscription
+from db_trial import TrialUsage, TRIAL_DAYS, TRIAL_MEETING_CAP
 from db_referrals import Referral, REFERRAL_REWARD_PERCENTAGE
 from auth import get_current_agent
 from mailer import send_subscription_started_email
@@ -298,6 +299,54 @@ async def _handle_renewal_success(data: dict, metadata: dict, db: AsyncSession):
     if sub and sub.status != "active":
         sub.status = "active"
         await db.commit()
+
+
+@router.get("/trial-status")
+async def trial_status(
+    agent: Agent = Depends(get_current_agent),
+    db: AsyncSession = Depends(get_session)
+):
+    """
+    Real trial numbers for the frontend — meant to replace the static
+    "5 meetings, 7 days" copy in the Dashboard welcome popup with actual
+    usage once wired up. Returns has_subscription=True and everything
+    else null if this owner is on a paid plan (trial is irrelevant then).
+    """
+    owner_type, owner_id = _resolve_owner(agent)
+
+    sub_result = await db.execute(select(Subscription).where(Subscription.owner_id == owner_id))
+    if sub_result.scalar_one_or_none():
+        return {"has_subscription": True, "in_trial": False}
+
+    trial_result = await db.execute(select(TrialUsage).where(TrialUsage.owner_id == owner_id))
+    trial = trial_result.scalar_one_or_none()
+
+    if not trial:
+        # Trial hasn't started yet — created lazily on first /meetings/start.
+        return {
+            "has_subscription": False,
+            "in_trial": False,
+            "trial_started": False,
+            "meetings_used": 0,
+            "meetings_cap": TRIAL_MEETING_CAP,
+            "days_total": TRIAL_DAYS,
+        }
+
+    expires_at = trial.trial_started_at + timedelta(days=TRIAL_DAYS)
+    days_left = max(0, (expires_at - datetime.utcnow()).days)
+    expired = datetime.utcnow() > expires_at
+
+    return {
+        "has_subscription": False,
+        "in_trial": not expired,
+        "trial_started": True,
+        "meetings_used": trial.meetings_used,
+        "meetings_cap": TRIAL_MEETING_CAP,
+        "meetings_remaining": max(0, TRIAL_MEETING_CAP - trial.meetings_used),
+        "days_left": days_left,
+        "days_total": TRIAL_DAYS,
+        "expires_at": expires_at,
+    }
 
 
 @router.get("/status")

@@ -30,6 +30,8 @@ from mailer import send_verification_email
 from coaching_routes import router as coaching_router
 from billing_routes import router as billing_router
 from billing_guard import require_active_access
+from db_billing import Subscription
+from db_trial import TrialUsage, TRIAL_MEETING_CAP
 from referral_routes import router as referral_router
 from db_referrals import Referral
 
@@ -239,6 +241,37 @@ async def start_meeting(
     _access = Depends(require_active_access),
     
 ):
+    # require_active_access already confirmed this owner is either
+    # subscribed or within their 7-day trial window. If they're NOT
+    # subscribed, this is a trial meeting — enforce the 5-meeting cap
+    # here specifically, since this is the one place a meeting is
+    # actually created. See db_trial.py's docstring for why this check
+    # doesn't also live in the shared dependency.
+    owner_id = agent.org_id or agent.id
+
+    sub_result = await db.execute(select(Subscription).where(Subscription.owner_id == owner_id))
+    has_active_subscription = sub_result.scalar_one_or_none() is not None
+
+    if not has_active_subscription:
+        trial_result = await db.execute(select(TrialUsage).where(TrialUsage.owner_id == owner_id))
+        trial = trial_result.scalar_one_or_none()
+
+        if not trial:
+            # First meeting ever attempted by this owner with no
+            # subscription — the trial officially starts now.
+            owner_type = "team" if agent.org_id else "individual"
+            trial = TrialUsage(owner_id=owner_id, owner_type=owner_type, meetings_used=0)
+            db.add(trial)
+            await db.flush()
+
+        if trial.meetings_used >= TRIAL_MEETING_CAP:
+            raise HTTPException(
+                status_code=402,
+                detail=f"You've used all {TRIAL_MEETING_CAP} meetings in your free trial. Choose a plan to continue."
+            )
+
+        trial.meetings_used += 1
+
     meeting_id = str(uuid.uuid4())
     meeting = Meeting(id=meeting_id, user_id=agent.id)
     db.add(meeting)
