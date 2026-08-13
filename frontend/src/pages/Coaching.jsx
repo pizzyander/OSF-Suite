@@ -35,6 +35,12 @@ export default function Coaching({ token }) {
       <h2 style={s.title}>Coaching</h2>
 
       {error && <p style={s.err}>{error}</p>}
+      <div style={s.section}>
+        <h3 style={s.sectionTitle}>Daily quiz</h3>
+        <button style={s.quizCta} onClick={() => navigate({ to: '/coaching/quiz' })}>
+          Take today's scenarios →
+        </button>
+      </div>
 
       <div style={s.section}>
         <h3 style={s.sectionTitle}>This week's plan</h3>
@@ -123,4 +129,5 @@ const s = {
   patternCategory: { color: '#3F6249', fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' },
   patternSource:   { color: '#8A8779', fontSize: '12px' },
   patternText: { color: '#46443E', fontSize: '14px', lineHeight: 1.6, margin: 0 },
+  quizCta: { display: 'block', width: '100%', textAlign: 'left', background: '#F7F6F3', border: '1px solid #E5E2DB', borderRadius: '10px', padding: '1rem 1.25rem', fontSize: '14px', color: '#0A1A2F', cursor: 'pointer', fontFamily: 'inherit' },
 }

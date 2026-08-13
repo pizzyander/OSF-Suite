@@ -22,6 +22,9 @@ from db import AsyncSessionLocal, Meeting, Agent
 from db_coaching import WinningPattern
 from nudge_engine import _call_ollama
 
+from db_coaching import WinningPattern, DailyQuiz, QuizQuestion   # extend existing db_coaching import
+from datetime import date as date_cls
+
 GAP_ANALYSIS_WINDOW_DAYS       = 7
 WINNING_PATTERN_WINDOW_DAYS    = 30
 MIN_MEETINGS_FOR_GAP_ANALYSIS  = 2
@@ -70,9 +73,8 @@ Respond with:
 Or, if nothing genuinely stands out as a reusable technique:
 {{"category": null, "technique": null}}
 """
-
-
-async def run_gap_analysis(agent_id: str) -> dict | None:
+async def _gather_gap_signals(agent_id: str) -> dict | None:
+    """Shared GATHER + AGGREGATE step for the coaching plan and the quiz."""
     since = datetime.utcnow() - timedelta(days=GAP_ANALYSIS_WINDOW_DAYS)
 
     async with AsyncSessionLocal() as db:
@@ -105,9 +107,10 @@ async def run_gap_analysis(agent_id: str) -> dict | None:
 
         for obj in coaching.get("objections_handled", []):
             if obj.get("effectiveness_score_out_of_10", 10) < 6:
-                weak_examples.append(
-                    f"- Client: \"{obj.get('client_objection')}\" -> Rep said: \"{obj.get('agent_response')}\""
-                )
+                weak_examples.append({
+                    "objection": obj.get("client_objection"),
+                    "rep_response": obj.get("agent_response"),
+                })
 
     if not scores:
         return None
@@ -123,14 +126,33 @@ async def run_gap_analysis(agent_id: str) -> dict | None:
     if not weak_spots:
         return None
 
+    return {
+        "agent": agent,
+        "meeting_count": len(meetings),
+        "avg_score": avg_score,
+        "avg_talk_ratio": avg_talk_ratio,
+        "weak_spots": weak_spots,
+        "weak_examples": weak_examples,
+    }
+
+async def run_gap_analysis(agent_id: str) -> dict | None:
+    signals = await _gather_gap_signals(agent_id)
+    if not signals:
+        return None
+
+    examples_text = "\n".join(
+        f"- Client: \"{e['objection']}\" -> Rep said: \"{e['rep_response']}\""
+        for e in signals["weak_examples"][:5]
+    ) or "(none)"
+
     prompt = COACHING_PROMPT_TEMPLATE.format(
-        rep_name=agent.name,
+        rep_name=signals["agent"].name,
         days=GAP_ANALYSIS_WINDOW_DAYS,
-        meeting_count=len(meetings),
-        avg_score=avg_score,
-        avg_talk_ratio=avg_talk_ratio or "n/a",
-        weak_spots="\n".join(f"- {w}" for w in weak_spots),
-        examples="\n".join(weak_examples[:5]) or "(none)",
+        meeting_count=signals["meeting_count"],
+        avg_score=signals["avg_score"],
+        avg_talk_ratio=signals["avg_talk_ratio"] or "n/a",
+        weak_spots="\n".join(f"- {w}" for w in signals["weak_spots"]),
+        examples=examples_text,
     )
     result = await _call_ollama(COACHING_SYSTEM_PROMPT, prompt, timeout=30.0)
     if not result or not result.get("plan"):
@@ -138,13 +160,12 @@ async def run_gap_analysis(agent_id: str) -> dict | None:
 
     return {
         "agent_id": agent_id,
-        "period_start": since,
+        "period_start": datetime.utcnow() - timedelta(days=GAP_ANALYSIS_WINDOW_DAYS),
         "period_end": datetime.utcnow(),
-        "meetings_analyzed": len(meetings),
-        "avg_coaching_score": avg_score,
+        "meetings_analyzed": signals["meeting_count"],
+        "avg_coaching_score": signals["avg_score"],
         "plan_text": result["plan"],
     }
-
 
 async def run_winning_pattern_extraction(agent_id: str) -> list[dict]:
     since = datetime.utcnow() - timedelta(days=WINNING_PATTERN_WINDOW_DAYS)
@@ -194,6 +215,99 @@ async def run_winning_pattern_extraction(agent_id: str) -> list[dict]:
 
     return extracted
 
+QUIZ_SYSTEM_PROMPT = """You are a sales coaching lead building a short practice quiz for one rep, \
+targeting the specific gaps identified in their recent calls. For each gap, invent a realistic, \
+concrete sales scenario (never generic) and 4 possible responses the rep could give — exactly ONE \
+of which is the effective, best-practice response. The other 3 should be plausible mistakes a real \
+rep might make (not obviously wrong — that defeats the point of testing them). Respond ONLY with \
+valid JSON, no markdown."""
+
+QUIZ_PROMPT_TEMPLATE = """Rep: {rep_name}
+Gaps identified this week:
+{weak_spots}
+
+Real weak-response examples from their calls (for tone/context, don't just reuse verbatim):
+{examples}
+
+Write exactly 5 scenario-based multiple-choice questions that train the rep on these specific gaps. \
+Vary the scenario situations (different products, objections, deal stages) even if they target the \
+same underlying skill. Each question needs a one-sentence explanation of why the correct option works.
+
+Respond with:
+{{"questions": [
+  {{
+    "scenario": "<a specific, realistic situation the rep is in — 2-3 sentences>",
+    "options": ["<option A>", "<option B>", "<option C>", "<option D>"],
+    "correct_index": <0-3>,
+    "explanation": "<why the correct option is the effective one, 1-2 sentences>",
+    "skill_area": "objection_handling"|"discovery"|"closing"|"talk_ratio"|"buying_signal"
+  }},
+  ... (5 total)
+]}}
+"""
+
+
+async def generate_daily_quiz(agent_id: str) -> dict | None:
+    """Builds today's 5-scenario quiz for one agent, targeting this week's gaps."""
+    today = date_cls.today()
+
+    async with AsyncSessionLocal() as db:
+        existing = await db.execute(
+            select(DailyQuiz).where(DailyQuiz.agent_id == agent_id, DailyQuiz.quiz_date == today)
+        )
+        if existing.scalar_one_or_none():
+            return None
+
+    signals = await _gather_gap_signals(agent_id)
+    if not signals:
+        return None
+
+    examples_text = "\n".join(
+        f"- Client: \"{e['objection']}\" -> Rep said: \"{e['rep_response']}\""
+        for e in signals["weak_examples"][:5]
+    ) or "(none)"
+
+    prompt = QUIZ_PROMPT_TEMPLATE.format(
+        rep_name=signals["agent"].name,
+        weak_spots="\n".join(f"- {w}" for w in signals["weak_spots"]),
+        examples=examples_text,
+    )
+    result = await _call_ollama(QUIZ_SYSTEM_PROMPT, prompt, timeout=45.0)
+
+    questions = (result or {}).get("questions") or []
+    valid_questions = [
+        q for q in questions
+        if isinstance(q.get("options"), list)
+        and len(q["options"]) == 4
+        and isinstance(q.get("correct_index"), int)
+        and 0 <= q["correct_index"] <= 3
+        and q.get("scenario") and q.get("explanation") and q.get("skill_area")
+    ]
+    if len(valid_questions) < 3:
+        return None
+
+    async with AsyncSessionLocal() as db:
+        quiz = DailyQuiz(
+            agent_id=agent_id,
+            quiz_date=today,
+            based_on_gap_summary="; ".join(signals["weak_spots"]),
+        )
+        db.add(quiz)
+        await db.flush()
+
+        for i, q in enumerate(valid_questions[:5], start=1):
+            db.add(QuizQuestion(
+                quiz_id=quiz.id,
+                position=i,
+                scenario=q["scenario"],
+                options=q["options"],
+                correct_index=q["correct_index"],
+                explanation=q["explanation"],
+                skill_area=q["skill_area"],
+            ))
+        await db.commit()
+
+    return {"quiz_id": quiz.id, "question_count": len(valid_questions[:5])}
 
 async def get_winning_patterns_block(owner_scope_id: str, db: AsyncSession) -> str:
     """

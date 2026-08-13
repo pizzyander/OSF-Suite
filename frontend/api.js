@@ -112,7 +112,21 @@ export const api = {
   getCoachingPlan:    (token) => request('GET', '/coaching/plan', null, token),
   getCoachingHistory: (token) => request('GET', '/coaching/plans', null, token),
   getWinningPatterns: (token) => request('GET', '/coaching/winning-patterns', null, token),
+  getTodayQuiz: (token) =>
+      fetch(`${API_BASE}/coaching/quiz/today`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json()),
 
+  submitQuizAnswer: (token, quizId, questionId, selectedIndex) =>
+    fetch(`${API_BASE}/coaching/quiz/${quizId}/questions/${questionId}/answer`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selected_index: selectedIndex }),
+    }).then(r => r.json()),
+
+  getQuizHistory: (token) =>
+    fetch(`${API_BASE}/coaching/quiz/history`, { headers: { Authorization: `Bearer ${token}` } })
+     .then(r => r.json()),
+     
   // -- Meetings ------------------------------------------------------------------------
   startMeeting:   (token)                   => request('POST', '/meetings/start',  null, token),
   endMeeting:     (token, id, total_chunks) => request('POST', `/meetings/${id}/end`, { total_chunks }, token),

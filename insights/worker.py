@@ -13,7 +13,7 @@ from mailer import (
     send_meeting_ready_email, send_coaching_plan_email,
     send_renewal_receipt_email, send_payment_failed_email, send_access_expired_email,
 )
-from coaching_agent import run_gap_analysis, run_winning_pattern_extraction, get_winning_patterns_block
+from coaching_agent import run_gap_analysis, run_winning_pattern_extraction, get_winning_patterns_block, generate_daily_quiz
 from db_billing import Subscription
 from billing_routes import PLANS
 import paystack_client
@@ -475,13 +475,23 @@ async def daily_coaching_loop():
                             for p in patterns:
                                 db.add(WinningPattern(id=str(uuid.uuid4()), **p))
                             await db.commit()
+
+                    # NEW: daily quiz, targeting whatever gaps run_gap_analysis just found.
+                    # generate_daily_quiz persists the quiz + questions itself and returns
+                    # None if there's nothing to base scenarios on yet, or if today's quiz
+                    # already exists (idempotent on retry/redeploy) — so no extra handling
+                    # needed here beyond the same try/except every other job in this loop gets.
+                    quiz = await generate_daily_quiz(agent.id)
+                    if quiz:
+                        print(f"Quiz generated for agent={agent.id}: {quiz['question_count']} questions")
+
                 except Exception as e:
                     print(f"Daily coaching run failed for agent={agent.id} (non-fatal): {e}")
 
             print("Daily coaching run complete")
         except Exception as e:
             print(f"Daily coaching loop error: {e}")
-
+            
 
 BILLING_CHECK_INTERVAL_SECONDS = 60 * 60
 PAST_DUE_GRACE_DAYS = 3
