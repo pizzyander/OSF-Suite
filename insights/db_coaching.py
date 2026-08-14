@@ -5,8 +5,8 @@ db_coaching.py — CoachingPlan (gap-analysis output) and WinningPattern
 
 
 import uuid
-from datetime import date
-from sqlalchemy import Column, String, Integer, Float, Date, DateTime, ForeignKey, Boolean, UniqueConstraint, func
+from datetime import date, datetime
+from sqlalchemy import Column, String, Integer, Float, Text, Date, DateTime, ForeignKey, Boolean, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from db import Base
