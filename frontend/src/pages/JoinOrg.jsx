@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { motion, useReducedMotion } from 'motion/react'
 import { Building2, Check } from 'lucide-react'
 import { api } from '../api'
+import OsfLogoMark from '../components/OsfLogoMark'
 
 /**
  * JoinOrg: the page an invite link (/join?token=...) lands on.
@@ -85,7 +86,7 @@ export default function JoinOrg({ token, onAccepted }) {
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
           transition={{ duration: 0.7, ease: [0.22, 0.61, 0.36, 1] }}>
 
-          <img src="/logo-mark.png" alt="OSF-Suite" className="osf-join-logo-img" />
+          <OsfLogoMark className="osf-join-logo-img" />
 
           {status === 'loading' && (
             <div className="osf-join-skel-group">

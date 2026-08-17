@@ -3,6 +3,7 @@ import { useNavigate, Link } from '@tanstack/react-router'
 import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'motion/react'
 import { ArrowRight, Loader2, ShieldCheck } from 'lucide-react'
 import { api } from '../api'
+import OsfLogoMark from '../components/OsfLogoMark'
 
 export default function Login({ onLogin }) {
   const navigate = useNavigate()
@@ -159,7 +160,7 @@ export default function Login({ onLogin }) {
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
           transition={{ duration: 0.7, ease: [0.22, 0.61, 0.36, 1] }}
         >
-          <img src="/logo-mark.png" alt="OSF-Suite" className="osf-logo-img" />
+          <OsfLogoMark className="osf-logo-img" />
 
           <h1>Welcome back</h1>
           <p className="osf-sub">Sign in to your sales coaching workspace.</p>

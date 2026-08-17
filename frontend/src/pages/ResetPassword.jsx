@@ -4,6 +4,7 @@ import { motion, useReducedMotion } from 'motion/react'
 import { Check, Loader2 } from 'lucide-react'
 import { api } from '../api'
 import { validatePassword, passwordStrength } from '../validation'
+import OsfLogoMark from '../components/OsfLogoMark'
 
 export default function ResetPassword() {
   // Was useSearchParams() from react-router-dom — same direct-URL-read y
@@ -58,7 +59,7 @@ export default function ResetPassword() {
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
           transition={{ duration: 0.7, ease: [0.22, 0.61, 0.36, 1] }}>
 
-          <img src="/logo-mark.png" alt="OSF-Suite" className="osf-logo-img" />
+          <OsfLogoMark className="osf-logo-img" />
 
           {!token && (
             <>

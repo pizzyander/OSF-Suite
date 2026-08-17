@@ -255,14 +255,12 @@ async def start_meeting(
     if not has_active_subscription:
         trial_result = await db.execute(select(TrialUsage).where(TrialUsage.owner_id == owner_id))
         trial = trial_result.scalar_one_or_none()
-
         if not trial:
-            # First meeting ever attempted by this owner with no
-            # subscription — the trial officially starts now.
-            owner_type = "team" if agent.org_id else "individual"
-            trial = TrialUsage(owner_id=owner_id, owner_type=owner_type, meetings_used=0)
-            db.add(trial)
-            await db.flush()
+            # Should be impossible — require_active_access (the _access
+            # dependency above) guarantees this row exists for any
+            # non-subscribed owner reaching this point. Fail loudly
+            # rather than crashing below on trial.meetings_used.
+            raise HTTPException(status_code=500, detail="Trial state inconsistency — please try again or contact support.")
 
         if trial.meetings_used >= TRIAL_MEETING_CAP:
             raise HTTPException(

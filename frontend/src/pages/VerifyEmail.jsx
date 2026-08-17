@@ -3,6 +3,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { motion, useReducedMotion } from 'motion/react'
 import { Check, MailWarning } from 'lucide-react'
 import { api } from '../api'
+import OsfLogoMark from '../components/OsfLogoMark'
 
 export default function VerifyEmail() {
   // Was useSearchParams() from react-router-dom — same direct-URL-read
@@ -42,7 +43,7 @@ export default function VerifyEmail() {
           animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
           transition={{ duration: 0.7, ease: [0.22, 0.61, 0.36, 1] }}>
 
-          <img src="/logo-mark.png" alt="OSF-Suite" className="osf-logo-img" />
+          <OsfLogoMark className="osf-logo-img" />
 
           {status === 'verifying' && (
             <>

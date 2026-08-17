@@ -30,8 +30,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import get_session, Agent
 from db_billing import Subscription
-from db_trial import TrialUsage, TRIAL_DAYS
+
 from auth import get_current_agent
+from sqlalchemy.exc import IntegrityError
+
+from db_trial import TrialUsage, TrialEmailLedger, TRIAL_DAYS
 
 
 async def require_active_access(
@@ -53,14 +56,46 @@ async def require_active_access(
     trial = trial_result.scalar_one_or_none()
 
     if not trial:
-        # No subscription AND no trial record yet. This should be rare in
-        # practice — /meetings/start creates the trial record lazily on
-        # first use, so by the time any OTHER guarded endpoint is hit,
-        # a trial row should already exist. Treat as "never started."
-        raise HTTPException(status_code=402, detail="Start your free trial or choose a plan to continue.")
+        normalized_email = agent.email.strip().lower()
+        ledger_result = await db.execute(
+            select(TrialEmailLedger).where(TrialEmailLedger.email == normalized_email)
+        )
+        if ledger_result.scalar_one_or_none():
+            # This email already claimed a free trial before — on this
+            # account or a previous one. No second trial.
+            raise HTTPException(status_code=402, detail="This email has already used its free trial. Choose a plan to continue.")
+
+        trial = TrialUsage(
+            owner_id=owner_id,
+            owner_type="team" if agent.org_id else "individual",
+            trial_started_at=datetime.utcnow(),
+        )
+        db.add(trial)
+        db.add(TrialEmailLedger(
+            email=normalized_email,
+            owner_id=owner_id,
+            agent_id=agent.id,
+            trial_started_at=trial.trial_started_at,
+        ))
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Two requests raced on the insert. Could be benign (this
+            # same user double-clicked "New meeting") or real (a
+            # concurrent signup slipped past the SELECT above with the
+            # same email). Roll back and re-check which happened.
+            await db.rollback()
+            trial_result = await db.execute(select(TrialUsage).where(TrialUsage.owner_id == owner_id))
+            trial = trial_result.scalar_one_or_none()
+            if trial is None:
+                # No trial exists for OUR owner_id — the collision was
+                # the email ledger rejecting a reused email, not a
+                # harmless double-click. Treat as abuse-blocked.
+                raise HTTPException(status_code=402, detail="This email has already used its free trial. Choose a plan to continue.")
+        return
 
     trial_expires_at = trial.trial_started_at + timedelta(days=TRIAL_DAYS)
     if datetime.utcnow() > trial_expires_at:
         raise HTTPException(status_code=402, detail="Your 7-day trial has ended. Choose a plan to continue.")
 
-    return  # within the trial window — meeting-count cap enforced separately
+    return

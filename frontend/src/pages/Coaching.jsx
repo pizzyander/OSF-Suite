@@ -37,7 +37,7 @@ export default function Coaching({ token }) {
       {error && <p style={s.err}>{error}</p>}
       <div style={s.section}>
         <h3 style={s.sectionTitle}>Daily quiz</h3>
-        <button style={s.quizCta} onClick={() => navigate({ to: '/coaching/quiz' })}>
+        <button style={s.quizCta} onClick={() => navigate({ to: '/quiz' })}>
           Take today's scenarios →
         </button>
       </div>

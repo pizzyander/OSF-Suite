@@ -35,3 +35,19 @@ class TrialUsage(Base):
     meetings_used     = Column(Integer, nullable=False, default=0)
     created_at        = Column(DateTime, default=datetime.utcnow)
     updated_at        = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class TrialEmailLedger(Base):
+    """
+    Abuse-prevention record: one row per email that has ever started a
+    trial. Kept independent of TrialUsage/Agent specifically so it
+    survives account deletion — an email in here never gets a second
+    free trial, even from a brand-new account. Checked (and written)
+    inside billing_guard.py's require_active_access, at the same moment
+    a trial would otherwise be granted.
+    """
+    __tablename__ = "trial_email_ledger"
+
+    email             = Column(String, primary_key=True)  # normalized: .strip().lower()
+    owner_id          = Column(String, nullable=False)     # owner_id the trial was granted under
+    agent_id          = Column(String, nullable=False)     # which account triggered it
+    trial_started_at  = Column(DateTime, nullable=False, default=datetime.utcnow)

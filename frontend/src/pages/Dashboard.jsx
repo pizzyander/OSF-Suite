@@ -107,7 +107,7 @@ export default function Dashboard({ token, profile, onLogout }) {
         {/* Header */}
         <div className="osf-dash-header">
           <div>
-            <img src="/logo-mark.png" alt="OSF-Suite" style={{ height: '26px', width: 'auto', display: 'block' }} />
+            <OsfLogoMark style={{ height: '26px', width: 'auto', display: 'block' }} />
             {agent && (
               <p className="osf-dash-sub">
                 {agent.name} · {agent.email}
