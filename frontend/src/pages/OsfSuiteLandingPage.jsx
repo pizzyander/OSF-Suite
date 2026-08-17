@@ -399,7 +399,6 @@ function OsfSuiteLandingPage() {
         .osf-ba-card.osf-after{background:linear-gradient(160deg,#0C2038,var(--navy-950));color:#fff;border-color:rgba(255,255,255,.08);}
         .osf-pill{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.04em;padding:2px 8px;border-radius:20px;}
 
-        /* pillars */
         .osf-pillar-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
         @media (max-width:860px){ .osf-pillar-grid{grid-template-columns:1fr;} }
         .osf-pillar{
@@ -459,7 +458,6 @@ function OsfSuiteLandingPage() {
         .osf-persona-panel{animation:osf-panel-in .5s var(--ease);}
         @keyframes osf-panel-in{from{opacity:0;transform:translateY(12px) scale(.99);}to{opacity:1;transform:none;}}
 
-        /* proof */
         .osf-proof-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-bottom:36px;}
         @media (max-width:760px){ .osf-proof-strip{grid-template-columns:1fr;} }
         .osf-proof-card{position:relative;border:1px solid var(--line);border-radius:16px;padding:26px;text-align:center;
@@ -1042,7 +1040,7 @@ function OsfSuiteLandingPage() {
           <div className="osf-footer-bottom">
             <p>© 2026 OSF-Suite. All rights reserved. Lagos, Nigeria.</p>
             <div className="osf-footer-legal">
-              <a href="/pricing">Pricing</a>
+              <Link to="/pricing">Pricing</Link>
               <a href="/terms">Terms of Use</a>
               <a href="/privacy">Privacy Policy</a>
             </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from '@tanstack/react-router'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { api } from '../api'
 
@@ -41,7 +41,7 @@ export default function ManagerDashboard({ token, profile }) {
     return (
       <div style={s.wrap}>
         <p style={s.err}>Only managers and admins can view team performance.</p>
-        <button style={s.btnGhost} onClick={() => navigate('/')}>
+        <button style={s.btnGhost} onClick={() => navigate({ to: '/' })}>
           <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> Dashboard
         </button>
       </div>
@@ -54,7 +54,7 @@ export default function ManagerDashboard({ token, profile }) {
 
   return (
     <div style={s.wrap}>
-      <button style={s.back} onClick={() => navigate('/')}>
+      <button style={s.back} onClick={() => navigate({ to: '/' })}>
         <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> Dashboard
       </button>
       <h2 style={s.title}>Team performance</h2>
@@ -149,7 +149,7 @@ export default function ManagerDashboard({ token, profile }) {
           {meetings.map(m => {
             const date = new Date(m.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
             return (
-              <div key={m.meeting_id} style={s.card} onClick={() => navigate(`/meeting/${m.meeting_id}`)}>
+              <div key={m.meeting_id} style={s.card} onClick={() => navigate({ to: '/meeting/$id', params: { id: m.meeting_id } })}>
                 <div style={s.cardTop}>
                   <span style={s.cardAgent}>{m.agent_name}</span>
                   {m.deal_health && (

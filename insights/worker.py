@@ -13,7 +13,7 @@ from mailer import (
     send_meeting_ready_email, send_coaching_plan_email,
     send_renewal_receipt_email, send_payment_failed_email, send_access_expired_email,
 )
-from coaching_agent import run_gap_analysis, run_winning_pattern_extraction, get_winning_patterns_block
+from coaching_agent import run_gap_analysis, run_winning_pattern_extraction, get_winning_patterns_block, generate_daily_quiz
 from db_billing import Subscription
 from billing_routes import PLANS
 import paystack_client
@@ -23,11 +23,6 @@ from embeddings import similarity_search
 from reconciler import reconciler_loop
 
 REDIS_URL       = os.getenv("REDIS_URL",       "redis://redis:6379")
-# Ollama Cloud acts as a remote host for the same API your self-hosted
-# instance used — same /api/generate endpoint, same request/response shape.
-# The only real differences are the URL, the auth header, and which models
-# exist there (phi3:mini and tinyllama are LOCAL-ONLY models — neither has
-# a :cloud tag, so both had to be replaced with a model Cloud actually hosts).
 OLLAMA_URL      = os.getenv("OLLAMA_URL",      "https://ollama.com")
 OLLAMA_API_KEY  = os.getenv("OLLAMA_API_KEY",  "")
 OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL",    "gpt-oss:20b-cloud")
@@ -38,10 +33,6 @@ WHISPER_URL     = os.getenv("WHISPER_URL",     "http://whisper:8000")
 DIARIZATION_URL = os.getenv("DIARIZATION_URL", "http://diarization:8002")
 S3_BUCKET       = os.getenv("S3_BUCKET",       "")
 
-# Ollama Cloud requires this header on every request; self-hosted Ollama
-# ignores it harmlessly if it's present, so this is safe to always send —
-# switching back to self-hosted later needs no code change here, just
-# OLLAMA_URL/OLLAMA_API_KEY in .env.
 OLLAMA_HEADERS = {"Authorization": f"Bearer {OLLAMA_API_KEY}"} if OLLAMA_API_KEY else {}
 
 PROMPT_CACHE_KEY = "osf:prompt_cache:system_v1"
@@ -150,7 +141,6 @@ with company policy — flag any deviations in your coaching feedback):
 
 
 async def get_cached_system_prompt() -> str:
-    """Return system prompt from Redis cache or set it."""
     try:
         async with aioredis.from_url(REDIS_URL) as r:
             cached = await r.get(PROMPT_CACHE_KEY)
@@ -200,14 +190,6 @@ def build_rag_query(keywords: dict) -> str:
 
 
 async def resolve_context_scope(agent_id: str):
-    """
-    Looks up the requesting agent's org membership and returns:
-      (owner_id, scope_filter) where owner_id is what Redis/pgvector are
-      keyed by (org_id for org members, agent_id for individuals), and
-      scope_filter is the matching SQLAlchemy WHERE clause for the
-      CompanyContext table specifically (which — unlike Redis/pgvector —
-      distinguishes agent_id from org_id as two separate columns).
-    """
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Agent).where(Agent.id == agent_id))
         agent = result.scalar_one_or_none()
@@ -221,11 +203,6 @@ async def get_agent_context_rag(agent_id: str, rag_query: str) -> str:
     owner_id, scope_filter = await resolve_context_scope(agent_id)
     base_context = await _get_agent_context_rag_base(owner_id, scope_filter, rag_query)
 
-    # Append proven winning techniques from this scope's top-performing
-    # calls, if any exist yet — closes the loop between the gap-analysis/
-    # winning-pattern pipeline (coaching_agent.py) and the actual coaching
-    # output every meeting gets. A brand-new team with no wins recorded
-    # yet just gets an empty string here — harmless, not an error.
     try:
         async with AsyncSessionLocal() as db:
             winning_block = await get_winning_patterns_block(owner_id, db)
@@ -336,19 +313,6 @@ def merge_transcript_diarization(transcript_segments, diarization_segments):
 
 
 async def process_chunk(message: dict, sqs_client):
-    """
-    Handles a single audio chunk: pulls it from S3, transcribes + diarizes it,
-    stores the result in Redis, and — ONLY once every chunk for the meeting has
-    arrived AND the meeting has been marked ended — assembles the full transcript,
-    saves it to Postgres, and enqueues a separate "analyze" SQS message.
-
-    NOTE: this function must NOT run the Pass 1 / Pass 2 LLM analysis itself.
-    That logic lives exclusively in process_message_analysis(), which is
-    triggered by the "analyze" message this function sends. Duplicating that
-    logic here previously caused every non-final chunk to raise
-    "Transcript is empty" (since meeting.transcript is only populated once
-    the meeting has ended), which left chunk jobs stuck retrying forever.
-    """
     meeting_id = message["meeting_id"]
     s3_key = message["s3_key"]
     chunk_index = int(message["chunk_index"])
@@ -424,8 +388,6 @@ async def process_chunk(message: dict, sqs_client):
                 QueueUrl=SQS_QUEUE_URL,
                 MessageBody=json.dumps({"type": "analyze", "meeting_id": meeting_id})
             )
-    # process_chunk ends here. Do NOT add transcript-fetch/analysis logic below —
-    # that belongs exclusively in process_message_analysis().
 
 
 async def process_message_analysis(meeting_id: str):
@@ -470,12 +432,6 @@ async def process_message_analysis(meeting_id: str):
             "coaching": json.dumps(insights.get("coaching", {})),
         })
 
-    # Notify the owner their analysis is ready — non-fatal. A failed send
-    # here shouldn't mark the meeting as failed; the report is genuinely
-    # done and sitting in the app either way, the user just doesn't get
-    # pinged about it. Covers BOTH live and manually-uploaded meetings,
-    # since this function is the one place status flips to "done" for
-    # either path.
     try:
         async with AsyncSessionLocal() as db:
             agent_result = await db.execute(select(Agent).where(Agent.id == agent_id))
@@ -493,17 +449,6 @@ DAILY_COACHING_INTERVAL_SECONDS = 24 * 60 * 60
 
 
 async def daily_coaching_loop():
-    """
-    Runs once every 24 hours from worker startup — a simple fixed
-    interval, not scheduled to a specific wall-clock time. Good enough
-    for v1; swap for a real cron-style scheduler later if a specific
-    time-of-day (e.g. "every morning at 7am") ever matters.
-
-    For every active agent: runs gap analysis, stores + emails a
-    coaching plan if one was generated; runs winning-pattern extraction,
-    stores any techniques found. Each agent's failure is caught and
-    logged individually — one bad run shouldn't skip the whole batch.
-    """
     while True:
         await asyncio.sleep(DAILY_COACHING_INTERVAL_SECONDS)
         try:
@@ -530,28 +475,37 @@ async def daily_coaching_loop():
                             for p in patterns:
                                 db.add(WinningPattern(id=str(uuid.uuid4()), **p))
                             await db.commit()
+
+                    # NEW: daily quiz, targeting whatever gaps run_gap_analysis just found.
+                    # generate_daily_quiz persists the quiz + questions itself and returns
+                    # None if there's nothing to base scenarios on yet, or if today's quiz
+                    # already exists (idempotent on retry/redeploy) — so no extra handling
+                    # needed here beyond the same try/except every other job in this loop gets.
+                    quiz = await generate_daily_quiz(agent.id)
+                    if quiz:
+                        print(f"Quiz generated for agent={agent.id}: {quiz['question_count']} questions")
+
                 except Exception as e:
                     print(f"Daily coaching run failed for agent={agent.id} (non-fatal): {e}")
 
             print("Daily coaching run complete")
         except Exception as e:
             print(f"Daily coaching loop error: {e}")
+            
 
-
-BILLING_CHECK_INTERVAL_SECONDS = 60 * 60  # check hourly — cheap query, and catches
-                                            # renewals due at any time of day, unlike
-                                            # the once-a-day coaching loop
-PAST_DUE_GRACE_DAYS = 3  # how long a failed renewal stays "past_due" before we cut access entirely
+BILLING_CHECK_INTERVAL_SECONDS = 60 * 60
+PAST_DUE_GRACE_DAYS = 3
 
 
 async def billing_loop():
     """
     Runs hourly. Finds every subscription whose current_period_end has
-    passed and attempts to charge the saved card for the next period —
-    this is what makes trial-to-paid conversion and every subsequent
-    renewal actually happen, for all four plan types uniformly (see the
-    design note at the top of db_billing.py for why one mechanism covers
-    2-week, monthly, and annual plans alike).
+    passed and attempts to charge the saved card for the next period.
+
+    CHANGED: renewal charges now pass currency=sub.currency —
+    Paystack authorizations are tied to the currency they were created
+    in, so a subscription created in USD must be re-charged in USD,
+    never assumed to be NGN.
     """
     while True:
         await asyncio.sleep(BILLING_CHECK_INTERVAL_SECONDS)
@@ -581,9 +535,6 @@ async def _process_renewal(subscription_id: str):
         if not sub:
             return
 
-        # Need the email to charge against — individual owner_id is an
-        # agent_id directly; team owner_id is an org_id, so look up any
-        # admin of that org to get a billing contact email.
         if sub.owner_type == "individual":
             agent_result = await db.execute(select(Agent).where(Agent.id == sub.owner_id))
         else:
@@ -595,11 +546,13 @@ async def _process_renewal(subscription_id: str):
             print(f"Cannot renew subscription={subscription_id}: missing agent or saved card")
             return
 
+        currency = sub.currency or "NGN"
         reference = f"renewal-{uuid.uuid4().hex[:16]}"
         try:
             result = await paystack_client.charge_authorization(
                 email=agent.email,
                 amount=sub.amount,
+                currency=currency,
                 authorization_code=sub.paystack_authorization_code,
                 reference=reference,
             )
@@ -613,18 +566,14 @@ async def _process_renewal(subscription_id: str):
             sub.current_period_end = datetime.utcnow() + timedelta(days=sub.interval_days)
             sub.last_charge_reference = reference
             await db.commit()
-            print(f"Renewed subscription={subscription_id}, next charge in {sub.interval_days} days")
+            print(f"Renewed subscription={subscription_id} ({currency}), next charge in {sub.interval_days} days")
 
             plan_label = PLANS.get(sub.plan, {}).get("label", sub.plan)
             await asyncio.to_thread(
                 send_renewal_receipt_email, agent.email, agent.name, plan_label,
-                sub.amount, sub.current_period_end.strftime("%B %d, %Y")
+                sub.amount, currency, sub.current_period_end.strftime("%B %d, %Y")
             )
         else:
-            # Give a grace window before fully cutting access — a card
-            # can fail for a transient reason (bank hiccup) and succeed
-            # on the next hourly attempt, without the customer ever
-            # noticing a real interruption.
             grace_deadline = (sub.trial_ends_at or sub.current_period_end) + timedelta(days=PAST_DUE_GRACE_DAYS) \
                 if sub.status == "active" else datetime.utcnow() + timedelta(days=PAST_DUE_GRACE_DAYS)
             was_already_past_due = sub.status == "past_due"
@@ -650,16 +599,12 @@ async def run():
     print(f"PID: {os.getpid()}")
     print(f"SQS_QUEUE_URL: {SQS_QUEUE_URL}")
 
-    # Runs independently of the SQS loop below, on its own timer — sweeps
-    # for live-transcription sessions abandoned by a crashed process and
-    # finalizes whatever transcript was captured before it was lost.
     asyncio.create_task(reconciler_loop(REDIS_URL))
     asyncio.create_task(daily_coaching_loop())
     asyncio.create_task(billing_loop())
 
     while True:
         try:
-            # Shift blocking I/O to a background thread executor & pass AttributeNames for logic survival
             response = await asyncio.to_thread(
                 sqs.receive_message,
                 QueueUrl=SQS_QUEUE_URL,
@@ -704,9 +649,6 @@ async def run():
                     print(f"EXCEPTION in {msg_type} job {meeting_id}:")
                     print(traceback.format_exc())
 
-                    # Unified retry-cap logic: applies to BOTH "chunk" and "analyze"
-                    # jobs, so a genuinely failing chunk (e.g. Whisper down, S3
-                    # blip) can't loop forever the way it silently did before.
                     receive_count = int(message.get("Attributes", {}).get("ApproximateReceiveCount", "1"))
                     max_attempts = 3
 

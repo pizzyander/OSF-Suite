@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import { api } from '../api'
 
@@ -10,12 +10,13 @@ const PLAN_LABELS = {
   team_monthly:      'Team',
 }
 
+// CHANGED: "trialing" removed — the hard-paywall migration means
+// /billing/status can no longer return that status or a
+// trial_ends_at date. Only these three statuses are possible now.
 const STATUS_COPY = {
-  trialing:  { label: 'Free trial',    color: '#2C5478' },
   active:    { label: 'Active',        color: '#3F6249' },
   past_due:  { label: 'Payment issue', color: '#8F6423' },
   expired:   { label: 'Expired',       color: '#B3453B' },
-  cancelled: { label: 'Cancelled',     color: '#8A8779' },
 }
 
 export default function Billing({ token, profile }) {
@@ -36,7 +37,7 @@ export default function Billing({ token, profile }) {
 
   return (
     <div style={s.wrap}>
-      <button style={s.back} onClick={() => navigate('/')}>
+      <button style={s.back} onClick={() => navigate({ to: '/' })}>
         <ArrowLeft size={13} style={{ marginRight: '5px', verticalAlign: '-2px' }} /> Dashboard
       </button>
       <h1 style={s.title}>Billing</h1>
@@ -57,7 +58,7 @@ export default function Billing({ token, profile }) {
       {!loading && status && !status.has_subscription && (
         <div style={s.emptyBox}>
           <p style={s.emptyText}>No active plan yet.</p>
-          <button style={s.btn} onClick={() => navigate('/pricing')}>Choose a plan</button>
+          <button style={s.btn} onClick={() => navigate({ to: '/pricing' })}>Choose a plan</button>
         </div>
       )}
 
@@ -68,6 +69,7 @@ export default function Billing({ token, profile }) {
             <span style={s.value}>
               {PLAN_LABELS[status.plan] || status.plan}
               {status.seats ? ` · ${status.seats} seats` : ''}
+              {status.currency === 'USD' ? ' · USD' : ''}
             </span>
           </div>
           <div style={s.row}>
@@ -76,20 +78,14 @@ export default function Billing({ token, profile }) {
               {STATUS_COPY[status.status]?.label || status.status}
             </span>
           </div>
-          {status.status === 'trialing' && (
-            <div style={s.row}>
-              <span style={s.label}>Trial ends</span>
-              <span style={s.value}>{formatDate(status.trial_ends_at)}</span>
-            </div>
-          )}
           <div style={s.row}>
-            <span style={s.label}>{status.status === 'trialing' ? 'First charge' : 'Next charge'}</span>
+            <span style={s.label}>Next charge</span>
             <span style={s.value}>{formatDate(status.current_period_end)}</span>
           </div>
 
           {!status.has_access && (
             <p style={s.warning}>
-              Your access has ended. <button style={s.linkBtn} onClick={() => navigate('/pricing')}>Choose a plan</button> to continue.
+              Your access has ended. <button style={s.linkBtn} onClick={() => navigate({ to: '/pricing' })}>Choose a plan</button> to continue.
             </p>
           )}
 

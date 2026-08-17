@@ -1,4 +1,4 @@
-﻿import os, uuid, json, httpx, boto3, asyncio
+import os, uuid, json, httpx, boto3, asyncio
 from datetime import datetime
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
@@ -30,6 +30,10 @@ from mailer import send_verification_email
 from coaching_routes import router as coaching_router
 from billing_routes import router as billing_router
 from billing_guard import require_active_access
+from db_billing import Subscription
+from db_trial import TrialUsage, TRIAL_MEETING_CAP
+from referral_routes import router as referral_router
+from db_referrals import Referral
 
 REDIS_URL       = os.getenv("REDIS_URL", "redis://redis:6379")
 WHISPER_URL     = os.getenv("WHISPER_URL", "http://whisper:8000")
@@ -83,6 +87,7 @@ app.include_router(manager_router)
 app.include_router(verification_router)
 app.include_router(coaching_router)
 app.include_router(billing_router)
+app.include_router(referral_router)
 
 @app.on_event("startup")
 async def startup():
@@ -97,6 +102,7 @@ async def register(request: Request, payload: dict, db: AsyncSession = Depends(g
     name     = payload.get("name", "").strip()
     email    = payload.get("email", "").strip().lower()
     password = payload.get("password", "").strip()
+    referral_code = payload.get("referral_code", "").strip().upper() if payload.get("referral_code") else None
 
     if not name or not email or not password:
         raise HTTPException(status_code=400, detail="name, email and password required")
@@ -113,6 +119,28 @@ async def register(request: Request, payload: dict, db: AsyncSession = Depends(g
         api_key=generate_api_key()
     )
     db.add(agent)
+
+    # If this signup came in through a referral link, record it now.
+    # Non-fatal by design — an invalid/expired code should never block
+    # registration itself, just silently skip the referral tracking.
+    if referral_code:
+        try:
+            from db_referrals import ReferralCode
+            code_result = await db.execute(select(ReferralCode).where(ReferralCode.code == referral_code))
+            code_row = code_result.scalar_one_or_none()
+            if code_row and code_row.agent_id != agent.id:
+                db.add(Referral(
+                    id=str(uuid.uuid4()),
+                    referrer_agent_id=code_row.agent_id,
+                    referred_agent_id=agent.id,
+                    referral_code=referral_code,
+                    status="signed_up",
+                ))
+            elif not code_row:
+                logger.warning(f"Signup referenced unknown referral code: {referral_code}")
+        except Exception as e:
+            logger.error(f"Referral tracking failed (non-fatal) for new agent={agent.id}: {e}")
+
     await db.commit()
     verify_token = create_email_verification_token(agent.id)
     await asyncio.to_thread(send_verification_email, agent.email, agent.name, verify_token)
@@ -159,11 +187,6 @@ async def login(request: Request, payload: dict, db: AsyncSession = Depends(get_
         "expires_in_minutes": int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
     }
 
-# Replace the existing /agents/refresh in main.py with this — the only
-# change is issuing (and returning) a NEW refresh token on every use,
-# instead of keeping the original one alive for its whole fixed lifetime.
-# This is what actually makes sessions "extend" for an active user.
-
 @app.post("/agents/refresh")
 async def refresh_token(payload: dict, db: AsyncSession = Depends(get_session)):
     token = payload.get("refresh_token", "")
@@ -179,9 +202,7 @@ async def refresh_token(payload: dict, db: AsyncSession = Depends(get_session)):
         raise HTTPException(status_code=401, detail="Agent not found or inactive")
 
     access_token = create_access_token(agent.id)
-    new_refresh_token = create_refresh_token(agent.id)  # rotation — old one still technically
-                                                          # valid until it expires naturally, but
-                                                          # the frontend immediately overwrites it
+    new_refresh_token = create_refresh_token(agent.id)
     return {
         "access_token": access_token,
         "refresh_token": new_refresh_token,
@@ -220,6 +241,35 @@ async def start_meeting(
     _access = Depends(require_active_access),
     
 ):
+    # require_active_access already confirmed this owner is either
+    # subscribed or within their 7-day trial window. If they're NOT
+    # subscribed, this is a trial meeting — enforce the 5-meeting cap
+    # here specifically, since this is the one place a meeting is
+    # actually created. See db_trial.py's docstring for why this check
+    # doesn't also live in the shared dependency.
+    owner_id = agent.org_id or agent.id
+
+    sub_result = await db.execute(select(Subscription).where(Subscription.owner_id == owner_id))
+    has_active_subscription = sub_result.scalar_one_or_none() is not None
+
+    if not has_active_subscription:
+        trial_result = await db.execute(select(TrialUsage).where(TrialUsage.owner_id == owner_id))
+        trial = trial_result.scalar_one_or_none()
+        if not trial:
+            # Should be impossible — require_active_access (the _access
+            # dependency above) guarantees this row exists for any
+            # non-subscribed owner reaching this point. Fail loudly
+            # rather than crashing below on trial.meetings_used.
+            raise HTTPException(status_code=500, detail="Trial state inconsistency — please try again or contact support.")
+
+        if trial.meetings_used >= TRIAL_MEETING_CAP:
+            raise HTTPException(
+                status_code=402,
+                detail=f"You've used all {TRIAL_MEETING_CAP} meetings in your free trial. Choose a plan to continue."
+            )
+
+        trial.meetings_used += 1
+
     meeting_id = str(uuid.uuid4())
     meeting = Meeting(id=meeting_id, user_id=agent.id)
     db.add(meeting)
@@ -263,7 +313,7 @@ async def get_upload_url(
         s3 = boto3.client(
             "s3",
             region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
-            config=Config(signature_version="s3v4")   # ← add this here, not just in upload_complete
+            config=Config(signature_version="s3v4")
         )
         presigned_url = s3.generate_presigned_url(
             "put_object",
@@ -288,22 +338,6 @@ async def upload_complete(
     db: AsyncSession = Depends(get_session),
     _access = Depends(require_active_access),
 ):
-    """
-    Manual upload path (full recording, not the live streaming flow).
-
-    Flow:
-      1. Agent already PUT the full file to S3 via /meetings/{id}/upload-url.
-      2. Agent calls this route with the resulting s3_key.
-      3. We pull the file from S3 here, forward it to the Whisper service's
-         /transcribe-chunked endpoint, which force-splits it into
-         chunk_seconds (default 30s) segments and transcribes each one.
-      4. Chunk texts are concatenated in order into meeting.transcript —
-         no diarization, no per-chunk LLM calls. The full transcript is
-         saved exactly like the live flow's accumulated transcript.
-      5. status flips to "processing" and the meeting_id is pushed to SQS,
-         so the existing worker picks it up and runs the usual single
-         analyze() pass — identical downstream pipeline to live recordings.
-    """
     result = await db.execute(
         select(Meeting)
         .where(Meeting.id == meeting_id)
@@ -315,8 +349,6 @@ async def upload_complete(
 
     if chunk_seconds <= 0:
         raise HTTPException(status_code=400, detail="chunk_seconds must be positive")
-
-    # --- Pull the uploaded file from S3 ---------------------------------------
 
     s3 = boto3.client(
         "s3",
@@ -335,9 +367,6 @@ async def upload_complete(
 
     filename = s3_key.split("/")[-1]
 
-    # --- Forward to Whisper's chunked endpoint --------------------------------
-    # Whisper does all the splitting (ffmpeg) and transcription. We never see
-    # raw audio chunks here — only the resulting text + timestamps come back.
     try:
         async with httpx.AsyncClient(timeout=1800) as client:
             whisper_resp = await client.post(
@@ -363,16 +392,12 @@ async def upload_complete(
     if not chunks:
         raise HTTPException(status_code=422, detail="Transcription produced no chunks")
 
-    # Concatenate chunk texts in order — same shape as the live flow's
-    # accumulated `meeting.transcript`, just built in one pass instead of
-    # many small POST /chunk calls.
     transcript_parts = [c["text"] for c in chunks if c.get("text")]
     full_transcript = "\n".join(transcript_parts).strip()
 
     if not full_transcript:
         raise HTTPException(status_code=422, detail="Transcription returned no usable text")
 
-    # --- Save transcript and hand off to the usual worker pipeline -----------
     meeting.transcript = full_transcript
     meeting.chunks = len(chunks)
     meeting.status = "processing"
@@ -424,7 +449,6 @@ async def upload_chunk(
     meeting.chunks = chunk_index
     await db.commit()
 
-    # Send SQS message BEFORE returning — catch and log any failure
     try:
         sqs = boto3.client("sqs", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
         sqs_response = sqs.send_message(

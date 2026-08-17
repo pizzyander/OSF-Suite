@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from '@tanstack/react-router'
 import { Check } from 'lucide-react'
 import { api } from '../api'
 
@@ -15,7 +15,7 @@ export default function BillingCallback({ token }) {
         const result = await api.billingStatus(token)
         if (result.has_subscription) {
           setStatus('active')
-          setTimeout(() => navigate('/'), 1800)
+          setTimeout(() => navigate({ to: '/' }), 1800)
           return
         }
       } catch (err) {
@@ -39,13 +39,17 @@ export default function BillingCallback({ token }) {
               <div className="osf-callback-skel" style={{ width: '55%', height: '11px' }} />
               <div className="osf-callback-skel" style={{ width: '75%', height: '11px' }} />
             </div>
-            <p style={s.text}>Confirming your trial...</p>
+            {/* CHANGED: was "Confirming your trial..." — hard paywall
+                means this is now a real payment being confirmed, not a
+                trial activation. */}
+            <p style={s.text}>Confirming your payment...</p>
           </>
         )}
         {status === 'active' && (
           <>
             <div style={s.checkmark}><Check size={24} strokeWidth={3} /></div>
-            <h1 style={s.title}>Trial started</h1>
+            {/* CHANGED: was "Trial started" */}
+            <h1 style={s.title}>Subscription active</h1>
             <p style={s.text}>Taking you to your dashboard...</p>
           </>
         )}
@@ -56,7 +60,7 @@ export default function BillingCallback({ token }) {
               Your payment was processed but confirmation is taking a moment. Check your email, or
               refresh your dashboard in a minute.
             </p>
-            <button style={s.btn} onClick={() => navigate('/')}>Go to dashboard</button>
+            <button style={s.btn} onClick={() => navigate({ to: '/' })}>Go to dashboard</button>
           </>
         )}
       </div>

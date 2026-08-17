@@ -44,6 +44,14 @@ def _send(to_email: str, subject: str, html_body: str, text_body: str) -> bool:
         logger.error(f"SES send failed to {to_email} ({subject}): {repr(e)}")
         return False
 
+def _fmt_amount(amount: float, currency: str) -> str:
+    """Formats an amount with the right symbol for NGN or USD — every
+    billing email routes through this instead of hardcoding the naira
+    sign, now that subscriptions can be billed in either currency."""
+    symbol = {"NGN": "\u20a6", "USD": "$"}.get(currency, currency + " ")
+    return f"{symbol}{amount:,.0f}"
+
+
 
 # ---------------------------------------------------------------------------
 # Account / auth
