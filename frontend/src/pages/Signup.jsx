@@ -1,9 +1,29 @@
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
-import { useNavigate, Link } from "@tanstack/react-router";
 import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from "motion/react";
 import { ArrowRight, Check, Eye, EyeOff, Loader2, ShieldCheck } from "lucide-react";
-import { api } from "../api";
-import OsfLogoMark from '../components/OsfLogoMark'
+import { api } from "@/lib/api";
+
+export const Route = createFileRoute("/signup")({
+  head: () => ({
+    meta: [
+      { title: "Create your OSF-Suite account" },
+      {
+        name: "description",
+        content:
+          "Sign up for OSF-Suite and start coaching your sales team with real-time AI call guidance.",
+      },
+      { property: "og:title", content: "Create your OSF-Suite account" },
+      {
+        property: "og:description",
+        content: "Start coaching your sales team with real-time AI call guidance.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
+  component: SignupPage,
+});
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -19,7 +39,7 @@ function strengthOf(pw) {
 const STRENGTH_LABEL = ["Too short", "Weak", "Fair", "Strong", "Excellent"];
 const STRENGTH_COLOR = ["#B3453B", "#C77A41", "#C79541", "#2F9C8E", "#2F9C8E"];
 
-export default function Signup({ onLogin }) {
+function SignupPage() {
   const navigate = useNavigate();
   const reduce = useReducedMotion();
 
@@ -33,13 +53,6 @@ export default function Signup({ onLogin }) {
 
   const score = useMemo(() => strengthOf(password), [password]);
   const matches = confirm.length > 0 && confirm === password;
-
-  // Referral code, if this signup came in through a shared link like
-  // /signup?ref=X7K2P9Q — read once on mount, forwarded to api.register.
-  const referralCode = useMemo(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get("ref") || null;
-  }, []);
 
   // --- 3D tilt on the card (pointer-driven, spring-smoothed) ---
   const cardRef = useRef(null);
@@ -73,12 +86,13 @@ export default function Signup({ onLogin }) {
     setLoading(true);
     setError("");
     try {
-      const data = await api.register(name.trim(), email.trim(), password, referralCode);
-      // Hands off to authContext's onLogin — this is what actually sets
-      // osf_token/osf_refresh_token and loads the profile, same as the
-      // Login page. Previously this wrote to a different localStorage
-      // key ("osf.session") that the rest of the app never read.
-      await onLogin({ access_token: data.access_token, refresh_token: data.refresh_token });
+      const data = await api.register(name.trim(), email.trim(), password);
+      // onLogin equivalent: persist session, then continue into the app
+      try {
+        localStorage.setItem("osf.session", JSON.stringify(data));
+      } catch {
+        /* storage unavailable — non-fatal */
+      }
       navigate({ to: "/" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
@@ -127,7 +141,11 @@ export default function Signup({ onLogin }) {
           -webkit-mask:linear-gradient(#000,#000) content-box,linear-gradient(#000,#000);
           -webkit-mask-composite:xor;mask-composite:exclude;padding:1px;}
         .osf-card:hover::before{opacity:1;}
-        .osf-logo-img{height:32px;width:auto;display:block;margin-bottom:18px;}
+        .osf-logo{font-family:'Space Grotesk','Inter',sans-serif;font-weight:700;font-size:19px;
+          color:var(--navy-950);letter-spacing:-.02em;display:inline-flex;align-items:center;gap:8px;margin-bottom:18px;}
+        .osf-logo i{width:7px;height:7px;border-radius:50%;background:var(--accent);
+          box-shadow:0 0 0 0 rgba(199,149,65,.5);animation:osf-ping 2.4s var(--ease) infinite;}
+        @keyframes osf-ping{0%{box-shadow:0 0 0 0 rgba(199,149,65,.5);}70%{box-shadow:0 0 0 9px rgba(199,149,65,0);}100%{box-shadow:0 0 0 0 rgba(199,149,65,0);}}
         .osf-sub{color:var(--text-muted);font-size:14px;line-height:1.55;margin:0 0 24px;}
         .osf-form{display:flex;flex-direction:column;gap:14px;}
         .osf-field{display:flex;flex-direction:column;gap:6px;}
@@ -171,8 +189,7 @@ export default function Signup({ onLogin }) {
         @keyframes osf-rot{to{transform:rotate(360deg);}}
         .osf-links{margin-top:22px;text-align:center;}
         .osf-link{background:none;border:none;color:var(--text-muted);font-size:13px;cursor:pointer;
-          padding:0;font-family:inherit;position:relative;transition:color .25s var(--ease);
-          text-decoration:none;display:inline-block;}
+          padding:0;font-family:inherit;position:relative;transition:color .25s var(--ease);}
         .osf-link::after{content:"";position:absolute;left:0;bottom:-3px;width:100%;height:1px;
           background:var(--accent);transform:scaleX(0);transform-origin:right;
           transition:transform .3s var(--ease);}
@@ -182,6 +199,7 @@ export default function Signup({ onLogin }) {
           color:var(--text-muted);font-size:11.5px;}
         @media (prefers-reduced-motion:reduce){
           .osf-auth-blob{display:none;}
+          .osf-logo i{animation:none;}
           .osf-input:focus,.osf-submit:hover{transform:none;}
         }
       `}</style>
@@ -211,7 +229,10 @@ export default function Signup({ onLogin }) {
           animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
           transition={{ duration: 0.7, ease: [0.22, 0.61, 0.36, 1] }}
         >
-          <OsfLogoMark className="osf-logo-img" />
+          <div className="osf-logo">
+            <i />
+            <span>OSF<span style={{ color: "var(--accent-strong)" }}>-Suite</span></span>
+          </div>
 
           <h1>Create your account</h1>
           <p className="osf-sub">Start coaching your sales team with real-time call guidance.</p>
@@ -331,9 +352,9 @@ export default function Signup({ onLogin }) {
           </form>
 
           <div className="osf-links">
-            <Link to="/login" className="osf-link">
+            <button type="button" className="osf-link" onClick={() => navigate({ to: "/" })}>
               Already have an account? Sign in
-            </Link>
+            </button>
           </div>
 
           <div className="osf-trust">
