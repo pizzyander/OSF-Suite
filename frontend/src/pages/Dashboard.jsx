@@ -6,6 +6,7 @@ import {
   Share2, BarChart3, Users, FileText, LogOut, Sparkles, Video,
 } from 'lucide-react'
 import { api } from '../api'
+import OsfLogoMark from '../components/OsfLogoMark'
 
 const EASE = [0.22, 0.61, 0.36, 1]
 const WELCOME_SEEN_KEY = 'osf_welcome_shown'
