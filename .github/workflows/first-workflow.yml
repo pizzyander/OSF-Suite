@@ -63,7 +63,8 @@ jobs:
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
               docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
             echo "Pulling latest code (for compose file / nginx config changes)..."
-            git pull origin main
+            git fetch origin
+            git reset --hard origin/master
             echo "Pulling latest images from ECR..."
             docker compose pull
             echo "Restarting stack..."
