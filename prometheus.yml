@@ -1,0 +1,12 @@
+# prometheus.yml — tells Prometheus what to scrape and how often.
+# Analogy: this is the truck's delivery route — it doesn't produce
+# anything itself, it just says "visit this address every 15 seconds
+# and collect whatever's sitting on the loading dock."
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "insights-service"
+    static_configs:
+      - targets: ["insights:8001"]   
+    metrics_path: /metrics

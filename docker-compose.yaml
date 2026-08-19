@@ -127,6 +127,34 @@
     # goes down with it — auto-restart is load-bearing here, not cosmetic.
     restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    # No `ports:` mapping to the host — intentional. This container is
+    # only reachable from other containers on the compose network
+    # (Grafana included), never directly from the internet. That's
+    # the actual security boundary here, not a firewall rule.
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    restart: unless-stopped
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    # No `ports:` at all now — Grafana only needs to be reachable by
+    # nginx over the internal Docker network (as grafana:3000), the
+    # same way insights and frontend already work. Nothing outside
+    # the compose network can reach it directly, which is strictly
+    # more secure than a host port binding nobody actually needs.
+
   certbot:
     image: certbot/certbot
     volumes:
@@ -150,3 +178,5 @@ volumes:
   certbot-etc:
   certbot-var:
   certbot-www:
+  prometheus_data:
+  grafana_data:

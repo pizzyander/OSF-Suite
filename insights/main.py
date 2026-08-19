@@ -15,7 +15,7 @@ from org_routes import router as org_router
 from onboarding_routes import router as onboarding_router
 from manager_routes import router as manager_router
 logger = logging.getLogger(__name__)
-
+from prometheus_fastapi_instrumentator import Instrumentator
 from db import init_db, get_session, Agent, Meeting
 from auth import (
     get_current_agent, generate_api_key,
@@ -88,6 +88,7 @@ app.include_router(verification_router)
 app.include_router(coaching_router)
 app.include_router(billing_router)
 app.include_router(referral_router)
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 @app.on_event("startup")
 async def startup():
@@ -640,8 +641,8 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/metrics")
-async def get_metrics(db: AsyncSession = Depends(get_session)):
+@app.get("/debug/stats")
+async def get_debug_stats(db: AsyncSession = Depends(get_session)):
     metrics = {}
 
     try:
