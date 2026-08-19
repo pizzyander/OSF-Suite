@@ -86,5 +86,6 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            cd ~/OSF-Suite
             docker compose ps
-            curl -Ik https://hygini.app/health || exit 1
+            curl -Ik https://hygini.app/health || exit 1z
