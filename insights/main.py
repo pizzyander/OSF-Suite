@@ -34,6 +34,9 @@ from db_billing import Subscription
 from db_trial import TrialUsage, TRIAL_MEETING_CAP
 from referral_routes import router as referral_router
 from db_referrals import Referral
+from feedback_routes import router as feedback_router
+from legal_routes import router as legal_router
+
 
 REDIS_URL       = os.getenv("REDIS_URL", "redis://redis:6379")
 WHISPER_URL     = os.getenv("WHISPER_URL", "http://whisper:8000")
@@ -88,6 +91,8 @@ app.include_router(verification_router)
 app.include_router(coaching_router)
 app.include_router(billing_router)
 app.include_router(referral_router)
+app.include_router(feedback_router)
+app.include_router(legal_router)
 Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 @app.on_event("startup")
@@ -104,7 +109,11 @@ async def register(request: Request, payload: dict, db: AsyncSession = Depends(g
     email    = payload.get("email", "").strip().lower()
     password = payload.get("password", "").strip()
     referral_code = payload.get("referral_code", "").strip().upper() if payload.get("referral_code") else None
+    terms_version = payload.get("terms_version")
+    privacy_version = payload.get("privacy_version")
 
+    if not terms_version or not privacy_version:
+        raise HTTPException(status_code=400, detail="You must accept the Terms of Use and Privacy Policy to register")
     if not name or not email or not password:
         raise HTTPException(status_code=400, detail="name, email and password required")
 
@@ -117,7 +126,10 @@ async def register(request: Request, payload: dict, db: AsyncSession = Depends(g
         name=name,
         email=email,
         hashed_password=hash_password(password),
-        api_key=generate_api_key()
+        api_key=generate_api_key(),
+        terms_accepted_version=terms_version,
+        privacy_accepted_version=privacy_version,
+        legal_accepted_at=datetime.utcnow(),
     )
     db.add(agent)
 
@@ -189,7 +201,8 @@ async def login(request: Request, payload: dict, db: AsyncSession = Depends(get_
     }
 
 @app.post("/agents/refresh")
-async def refresh_token(payload: dict, db: AsyncSession = Depends(get_session)):
+@limiter.limit("10/minute")
+async def refresh_token(request: Request, payload: dict, db: AsyncSession = Depends(get_session)):
     token = payload.get("refresh_token", "")
     if not token:
         raise HTTPException(status_code=400, detail="refresh_token required")

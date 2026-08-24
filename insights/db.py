@@ -29,6 +29,10 @@ from db_org import Organization, Invite  # noqa: F401
 
 from db_coaching import CoachingPlan, WinningPattern  # noqa: F401
 
+from db_feedback import Feedback, FeatureRequest, FeatureVote  # noqa: F401
+
+from db_legal import LegalView  # noqa: F401
+
 # Register ContextChunk with Base metadata — avoids circular import
 from db_vectors import init_vectors
 ContextChunk = init_vectors(Base)
@@ -68,6 +72,9 @@ class Agent(Base):
     primary_goal               = Column(String, nullable=True)
     what_we_sell                 = Column(Text, nullable=True)
     onboarding_completed           = Column(Boolean, default=False)
+    terms_accepted_version   = Column(String, nullable=True)
+    privacy_accepted_version = Column(String, nullable=True)
+    legal_accepted_at        = Column(DateTime, nullable=True)
 
 
 class Meeting(Base):

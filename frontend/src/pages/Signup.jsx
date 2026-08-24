@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, Link } from "@tanstack/react-router";
 import { motion, useMotionValue, useReducedMotion, useSpring, useTransform } from "motion/react";
 import { ArrowRight, Check, Eye, EyeOff, Loader2, ShieldCheck } from "lucide-react";
@@ -6,6 +6,8 @@ import { api } from "../api";
 import OsfLogoMark from '../components/OsfLogoMark'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const [legalMeta, setLegalMeta] = useState(null);
+useEffect(() => { api.getLegalMeta().then(setLegalMeta).catch(() => {}); }, []);
 
 function strengthOf(pw) {
   let score = 0;
@@ -28,6 +30,7 @@ export default function Signup({ onLogin }) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [showPw, setShowPw] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -69,11 +72,19 @@ export default function Signup({ onLogin }) {
     if (!EMAIL_RE.test(email.trim())) return setError("Please enter a valid email address");
     if (password.length < 8) return setError("Password must be at least 8 characters");
     if (password !== confirm) return setError("Passwords do not match");
+    if (!agreed) return setError("Please agree to the Terms of Use and Privacy Policy to continue");
 
     setLoading(true);
     setError("");
     try {
-      const data = await api.register(name.trim(), email.trim(), password, referralCode);
+      const data = await api.register(
+        name.trim(),
+        email.trim(),
+        password,
+        referralCode,
+        legalMeta?.terms?.version || "2026-09-05",
+        legalMeta?.privacy?.version || "2026-09-05",
+      );
       // Hands off to authContext's onLogin — this is what actually sets
       // osf_token/osf_refresh_token and loads the profile, same as the
       // Login page. Previously this wrote to a different localStorage
@@ -151,6 +162,22 @@ export default function Signup({ onLogin }) {
           transition:background .35s var(--ease);}
         .osf-hint{font-size:11.5px;font-weight:600;letter-spacing:.02em;}
         .osf-ok{display:inline-flex;align-items:center;gap:4px;color:var(--teal);font-size:11.5px;font-weight:600;}
+        .osf-consent{display:flex;align-items:flex-start;gap:9px;margin-top:2px;}
+        .osf-consent-checkbox{
+          appearance:none;-webkit-appearance:none;flex:0 0 auto;width:17px;height:17px;margin-top:1px;
+          border:1.5px solid var(--line-strong);border-radius:5px;background:#fff;cursor:pointer;
+          display:grid;place-items:center;transition:border-color .2s var(--ease),background .2s var(--ease);
+        }
+        .osf-consent-checkbox:hover{border-color:var(--accent);}
+        .osf-consent-checkbox:focus-visible{outline:none;box-shadow:0 0 0 4px rgba(199,149,65,.16);}
+        .osf-consent-checkbox:checked{background:var(--navy-900);border-color:var(--navy-900);}
+        .osf-consent-checkbox:checked::after{
+          content:"";width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;
+          transform:translateY(-1px) rotate(45deg);
+        }
+        .osf-consent-label{font-size:12.5px;line-height:1.55;color:var(--text-muted);cursor:pointer;user-select:none;}
+        .osf-consent-label a{color:var(--navy-700);font-weight:600;text-decoration:none;}
+        .osf-consent-label a:hover{color:var(--accent-strong);text-decoration:underline;}
         .osf-error{display:flex;gap:8px;align-items:flex-start;color:var(--danger);font-size:13px;margin:0;
           background:rgba(179,69,59,.07);border:1px solid rgba(179,69,59,.2);padding:9px 11px;border-radius:9px;}
         .osf-submit{position:relative;overflow:hidden;margin-top:6px;padding:13px;border-radius:10px;border:none;
@@ -303,6 +330,27 @@ export default function Signup({ onLogin }) {
               />
             </div>
 
+            <div className="osf-consent">
+              <input
+                id="osf-consent-checkbox"
+                className="osf-consent-checkbox"
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+              />
+              <label htmlFor="osf-consent-checkbox" className="osf-consent-label">
+                I agree to OSF-Suite&rsquo;s{" "}
+                <Link to="/terms" target="_blank" rel="noopener noreferrer">
+                  Terms of Use
+                </Link>{" "}
+                and{" "}
+                <Link to="/privacy" target="_blank" rel="noopener noreferrer">
+                  Privacy Policy
+                </Link>
+                , including how call recordings are processed and analyzed by AI.
+              </label>
+            </div>
+
             {error && (
               <motion.p
                 className="osf-error"
@@ -315,7 +363,7 @@ export default function Signup({ onLogin }) {
               </motion.p>
             )}
 
-            <button className="osf-submit" type="submit" disabled={loading}>
+            <button className="osf-submit" type="submit" disabled={loading || !agreed}>
               {loading ? (
                 <>
                   <Loader2 size={16} className="osf-spin" />

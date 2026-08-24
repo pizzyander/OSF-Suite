@@ -66,7 +66,8 @@ async function refreshAccessToken() {
 export const api = {
   // -- Auth --------------------------------------------------------------------
   login:          (email, password)         => request('POST', '/agents/login',    { email, password }),
-  register:       (name, email, pass, referral_code = null) => request('POST', '/agents/register', { name, email, password: pass, referral_code }),
+  register: (name, email, pass, referral_code = null, terms_version = null, privacy_version = null) =>
+  request('POST', '/agents/register', { name, email, password: pass, referral_code, terms_version, privacy_version }),
   me:             (token)                   => request('GET',  '/agents/me',       null, token),
   changePassword: (token, old_password, new_password) =>
                                                request('PUT',  '/agents/password', { old_password, new_password }, token),
@@ -107,6 +108,19 @@ export const api = {
   // -- Manager dashboard -------------------------------------------------------------
   getTeamMeetings: (token, limit = 50) => request('GET', `/team/meetings?limit=${limit}`, null, token),
   getTeamStats:    (token)             => request('GET', '/team/stats', null, token),
+
+  // -- Feedback & feature requests -----------------------------------------------
+  submitFeedback:    (token, message, category = 'general') =>
+                        request('POST', '/feedback', { message, category }, token),
+  getFeatures:       (token) => request('GET', '/features', null, token),
+  submitFeature:     (token, title, description) =>
+                        request('POST', '/features', { title, description }, token),
+  toggleFeatureVote: (token, featureId) => request('POST', `/features/${featureId}/vote`, null, token),
+
+  // -- Legal ---------------------------------------------------------------------
+  getLegalMeta:  ()                        => request('GET', '/legal/meta', null, null),
+  logLegalView:  (document, eventType = 'view') =>
+                     request('POST', '/legal/view', { document, event_type: eventType }, null),
 
   // -- Coaching plans & winning patterns -----------------------------------------------
   getCoachingPlan:    (token) => request('GET', '/coaching/plan', null, token),

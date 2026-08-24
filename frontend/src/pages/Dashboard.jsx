@@ -94,6 +94,7 @@ export default function Dashboard({ token, profile, onLogout }) {
     ...(agent?.role === 'admin'
       ? [{ label: 'Team', icon: Users, path: '/team' }] : []),
     { label: 'Manage company context', icon: FileText, path: '/context' },
+    { label: 'Feedback & Features', icon: MessageSquarePlus, path: '/feedback' },
   ]
 
   return (

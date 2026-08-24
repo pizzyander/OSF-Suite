@@ -986,7 +986,7 @@ export default function OsfSuiteLandingPage() {
               <h4>Company</h4>
               <ul>
                 <li>
-                  <a href="mailto:info@hygini.app">info@hygini.app</a>
+                  <Link to="mailto:info@hygini.app">info@hygini.app</Link>
                 </li>
                 <li>
                   <a href="tel:+2348120697429">+234 812 069 7429</a>
@@ -996,11 +996,11 @@ export default function OsfSuiteLandingPage() {
             </div>
           </div>
           <div className="osf-footer-bottom">
-            <p>Â© 2026 OSF-Suite. All rights reserved. Lagos, Nigeria.</p>
+            <p>© 2026 OSF-Suite. All rights reserved. Lagos, Nigeria.</p>
             <div className="osf-footer-legal">
               <Link to="/pricing">Pricing</Link>
-              <a href="/terms">Terms of Use</a>
-              <a href="/privacy">Privacy Policy</a>
+              <Link to="/terms">Terms of Use</Link>
+              <Link to="/privacy">Privacy Policy</Link>
             </div>
           </div>
         </div>
