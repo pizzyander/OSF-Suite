@@ -4,7 +4,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'motion/react'
 import OsfLogoMark from '../components/OsfLogoMark'
 import {
   RefreshCw, ArrowRight, LayoutGrid, X, GraduationCap, Tag, CreditCard,
-  Share2, BarChart3, Users, FileText, LogOut, Sparkles, Video,
+  Share2, BarChart3, Users, FileText, LogOut, Sparkles, Video, MessageSquarePlus,
 } from 'lucide-react'
 import { api } from '../api'
 
