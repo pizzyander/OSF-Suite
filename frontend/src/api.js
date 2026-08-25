@@ -127,6 +127,12 @@ export const api = {
   getCoachingHistory: (token) => request('GET', '/coaching/plans', null, token),
   getWinningPatterns: (token) => request('GET', '/coaching/winning-patterns', null, token),
 
+    // -- Daily quiz ------------------------------------------------------------------------
+  getTodayQuiz:      (token) => request('GET', '/coaching/quiz/today', null, token),
+  submitQuizAnswer:  (token, quizId, questionId, selectedIndex) =>
+                        request('POST', `/coaching/quiz/${quizId}/questions/${questionId}/answer`, { selected_index: selectedIndex }, token),
+  getQuizHistory:    (token) => request('GET', '/coaching/quiz/history', null, token),
+
   // -- Meetings ------------------------------------------------------------------------
   startMeeting:   (token)                   => request('POST', '/meetings/start',  null, token),
   endMeeting:     (token, id, total_chunks) => request('POST', `/meetings/${id}/end`, { total_chunks }, token),
