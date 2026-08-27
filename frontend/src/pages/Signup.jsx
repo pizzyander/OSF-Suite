@@ -6,8 +6,6 @@ import { api } from "../api";
 import OsfLogoMark from '../components/OsfLogoMark'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const [legalMeta, setLegalMeta] = useState(null);
-useEffect(() => { api.getLegalMeta().then(setLegalMeta).catch(() => {}); }, []);
 
 function strengthOf(pw) {
   let score = 0;
@@ -33,6 +31,9 @@ export default function Signup({ onLogin }) {
   const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const [legalMeta, setLegalMeta] = useState(null);
+  useEffect(() => { api.getLegalMeta().then(setLegalMeta).catch(() => {}); }, []);
 
   const score = useMemo(() => strengthOf(password), [password]);
   const matches = confirm.length > 0 && confirm === password;
