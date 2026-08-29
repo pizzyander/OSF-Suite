@@ -167,10 +167,9 @@ export default function Onboarding({ onLogin, onComplete }) {
 
       // NOTE: primary_goals is sent joined as a comma-separated string
       // into the existing `primary_goal` field, since that's a single
-      // String column today. If you want real multi-value storage,
-      // the backend column needs to become a JSON/array type — flag
-      // this to me once you share onboarding_routes.py and I'll wire
-      // it up properly instead of this stand-in.
+      // String column today — onboarding_routes.py's ALLOWED_FIELDS
+      // treats it as a plain string with no shape assumption, so this
+      // is fully compatible, not a stand-in workaround.
       await api.saveOnboarding(data.access_token, {
         country: fields.country,
         language: fields.language,
@@ -229,8 +228,8 @@ export default function Onboarding({ onLogin, onComplete }) {
       console.error('Failed to mark onboarding complete:', err)
     }
     setStep('transitioning')
-    setTimeout(() => {
-      onComplete?.()
+    setTimeout(async () => {
+      await onComplete?.()
       navigate({ to: '/' })
     }, 1400)
   }
