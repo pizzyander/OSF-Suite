@@ -77,8 +77,14 @@ export function AuthProvider({ children }) {
     })
   }, [logout])
 
-  const handleOnboardingComplete = useCallback(() => {
-    loadProfile(token)
+  // CHANGED: now async and awaits loadProfile, instead of firing it and
+  // returning immediately. Onboarding.jsx's finish() awaits this call
+  // before navigating to '/' — without the await here, that navigate
+  // could run before profile.onboarding_completed had actually been
+  // refreshed to true, and RootShell's guard would read the stale
+  // value and bounce the user straight back to /onboarding.
+  const handleOnboardingComplete = useCallback(async () => {
+    await loadProfile(token)
   }, [loadProfile, token])
 
   return (
