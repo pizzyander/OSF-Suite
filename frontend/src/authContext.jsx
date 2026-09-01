@@ -26,9 +26,6 @@ export function AuthProvider({ children }) {
       const me = await api.me(t)
       setProfile(me)
 
-      // If this account arrived via an invite link, finish accepting it
-      // now that they're authenticated — the token was stashed in
-      // localStorage by JoinOrg before sending them to Signup/Login.
       const pendingInvite = localStorage.getItem('osf_pending_invite')
       if (pendingInvite && !me.org_id) {
         try {
@@ -77,8 +74,18 @@ export function AuthProvider({ children }) {
     })
   }, [logout])
 
-  const handleOnboardingComplete = useCallback(() => {
-    loadProfile(token)
+  // CHANGED: now takes an explicit token argument, used in preference to
+  // context's own `token` state. This function is invoked from deep
+  // inside Onboarding.jsx's async account-creation flow, which started
+  // running (and closed over whatever `onComplete` reference existed)
+  // BEFORE the user was logged in — at that point context's `token` was
+  // still null. A later re-render producing a fresh closure doesn't
+  // retroactively fix a promise chain already in flight. Accepting the
+  // token explicitly, the same way onLogin already does, sidesteps the
+  // stale-closure trap entirely rather than depending on React's render
+  // timing lining up correctly.
+  const handleOnboardingComplete = useCallback(async (explicitToken) => {
+    await loadProfile(explicitToken || token)
   }, [loadProfile, token])
 
   return (

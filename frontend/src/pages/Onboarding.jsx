@@ -229,8 +229,14 @@ export default function Onboarding({ onLogin, onComplete }) {
       console.error('Failed to mark onboarding complete:', err)
     }
     setStep('transitioning')
-    setTimeout(() => {
-      onComplete?.()
+    setTimeout(async () => {
+      // CHANGED: pass sessionToken explicitly instead of calling
+      // onComplete?.() with no argument. finish() always receives a
+      // known-good, freshly-issued token from its caller (submitAccount,
+      // submitInvites, or skipInvites) — using that directly instead of
+      // letting handleOnboardingComplete fall back to context's `token`
+      // avoids the stale-closure trap described in authContext.jsx.
+      await onComplete?.(sessionToken)
       navigate({ to: '/' })
     }, 1400)
   }
