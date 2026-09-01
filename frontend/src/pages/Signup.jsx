@@ -91,7 +91,7 @@ export default function Signup({ onLogin }) {
       // Login page. Previously this wrote to a different localStorage
       // key ("osf.session") that the rest of the app never read.
       await onLogin({ access_token: data.access_token, refresh_token: data.refresh_token });
-      navigate({ to: "/" });
+      navigate({ to: "/dashboard" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
