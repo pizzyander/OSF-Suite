@@ -158,7 +158,7 @@ export default function OsfSuiteLandingPage() {
 
   const tiltStyle = { "--split": `${split}%` };
 
-  const headline = "Close deals faster with real-time in-call AI guidance.".split(" ");
+  const headline = "Close deals faster and better with elite AI sales analysis and coaching.".split(" ");
 
   return (
     <div className="osf" ref={rootRef}>
@@ -931,8 +931,7 @@ export default function OsfSuiteLandingPage() {
               ))}
             </div>
             <p className="osf-proof-note">
-              Illustrative figures based on early pilot teams. Replace with your own once you have
-              production data.
+              Experience a leap in overall performance.
             </p>
           </div>
         </section>
@@ -945,7 +944,7 @@ export default function OsfSuiteLandingPage() {
               <p>Get started in minutes, no lengthy setup required.</p>
               <div className="osf-final-actions">
                 <Magnetic>
-                  <Link to="/signup" className="osf-btn osf-btn-gold">
+                  <Link to="/onboarding" className="osf-btn osf-btn-gold">
                     Get started <ChevronRight size={15} />
                   </Link>
                 </Magnetic>
@@ -961,7 +960,7 @@ export default function OsfSuiteLandingPage() {
             <div>
               <OsfLogoMark className="osf-logo-img" style={{ marginBottom: 12 }} />
               <p>
-                AI-powered sales coaching and revenue intelligence, live during the call and
+                AI-powered sales coaching and performance intelligence, live during the call and
                 automatic after it.
               </p>
             </div>
@@ -978,7 +977,7 @@ export default function OsfSuiteLandingPage() {
                   <Link to="/login">Log in</Link>
                 </li>
                 <li>
-                  <Link to="/signup">Sign up</Link>
+                  <Link to="/onboarding">Get started</Link>
                 </li>
               </ul>
             </div>
